@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Regras de segurança para Aprova Professor
+    
+    match /content_topics/{topicId} {
+      allow read, write: if true;
+    }
+    
+    match /study_activities/{activityId} {
+      allow read, write: if true;
+    }
+
+    match /questions/{questionId} {
+      allow read, write: if true;
+    }
+
+    match /mistake_records/{recordId} {
+      allow read, write: if true;
+    }
+
+    match /candidate_settings/{settingId} {
+      allow read, write: if true;
+    }
+    
+    match /air_conditioners/{id} {
+      allow read, write: if true;
+    }
+    
+    match /maintenance_logs/{id} {
+      allow read, write: if true;
+    }
+    
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

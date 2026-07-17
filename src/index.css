@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-brand-navy: #0B2240;
+  --color-brand-green: #107C41;
+  --color-brand-amber: #F4B400;
+  --color-brand-light-green: #EBF7EE;
+  --color-brand-light-navy: #F0F4F8;
+  --color-brand-light-amber: #FFF9E6;
+}
+
+/* Custom animations and scrollbars */
+.animate-spin-slow {
+  animation: spin 8s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Markdown styling inside diagnosis boxes */
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  font-family: "Outfit", sans-serif;
+  font-weight: 700;
+  color: #0B2240;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+.markdown-body h1 { font-size: 1.1rem; }
+.markdown-body h2 { font-size: 1rem; }
+.markdown-body h3 { font-size: 0.95rem; }
+
+.markdown-body p {
+  margin-bottom: 0.75rem;
+  line-height: 1.6;
+}
+
+.markdown-body ul, .markdown-body ol {
+  margin-left: 1.25rem;
+  margin-bottom: 0.75rem;
+  list-style-type: disc;
+}
+
+.markdown-body li {
+  margin-bottom: 0.25rem;
+}
+
+.markdown-body strong {
+  font-weight: 700;
+  color: #0B2240;
+}
+

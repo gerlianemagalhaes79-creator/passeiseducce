@@ -1,0 +1,6 @@
+{
+  "name": "Aprova Professor",
+  "description": "Plataforma inteligente de preparação para concursos de professores, com mapa de conteúdos, calendário de estudos, simulador de provas, caderno de erros e mentoria pedagógica por IA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
