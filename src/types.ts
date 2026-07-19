@@ -72,6 +72,13 @@ export interface CandidateSettings {
   isAlreadyTeacher?: boolean;
 }
 
+export interface AuthorizedUser {
+  email: string;
+  role: 'admin' | 'user';
+  addedBy?: string;
+  createdAt: string;
+}
+
 export const EDUCATION_SUBJECTS = [
   "Língua Portuguesa",
   "Didática e Fundamentos da Educação",

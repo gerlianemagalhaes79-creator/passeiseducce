@@ -278,11 +278,20 @@ export const strategic74DayTemplate: DayTemplate[] = [
 export function generateFull74DaySchedule(
   startDateStr: string, 
   settings: CandidateSettings,
-  topics: ContentTopic[]
+  topics: ContentTopic[],
+  options?: {
+    studyDays?: number[];
+    dailyHours?: number;
+    examDate?: string;
+  }
 ): Omit<StudyActivity, "id" | "createdAt">[] {
   const result: Omit<StudyActivity, "id" | "createdAt">[] = [];
   const start = new Date(startDateStr + "T00:00:00");
   const spec = settings.specialty || "Biologia";
+
+  const studyDays = options?.studyDays !== undefined ? options.studyDays : [1, 2, 3, 4, 5, 6]; // Segunda a Sábado as default
+  const dailyHours = options?.dailyHours !== undefined ? options.dailyHours : (settings.dailyStudyHours || 4);
+  const examDateStr = options?.examDate || settings.examDate || "";
   
   // 1. Group the real content topics by subject
   const subjectGroups: Record<string, ContentTopic[]> = {
@@ -331,24 +340,15 @@ export function generateFull74DaySchedule(
     "Conhecimentos Específicos": sortTopicsByBlock(subjectGroups["Conhecimentos Específicos"])
   };
 
-  // Pointers for each subject's topic rotation
-  const pointers: Record<string, number> = {
-    "Língua Portuguesa": 0,
-    "Educação Brasileira": 0,
-    "Administração Pública": 0,
-    "Leitura e Interpretação de Dados e Indicadores": 0,
-    "Conhecimentos Específicos": 0
-  };
-
-  const getNextTopicFromSubject = (subj: string): ContentTopic | null => {
-    const list = sortedGroups[subj];
-    if (!list || list.length === 0) return null;
-    const idx = pointers[subj];
-    pointers[subj] = idx + 1;
-    return list[idx % list.length];
-  };
-
   let currentDate = new Date(start);
+  
+  // Calculate difference in calendar days up to the exam date
+  const end = examDateStr ? new Date(examDateStr + "T00:00:00") : new Date(start.getTime() + 74 * 24 * 60 * 60 * 1000);
+  const diffTime = end.getTime() - start.getTime();
+  let totalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // inclusive of exam day
+  if (totalDays <= 0 || totalDays < 5) {
+    totalDays = 74; // Safe fallback
+  }
 
   const subjectKeys = [
     "Língua Portuguesa", 
@@ -358,49 +358,122 @@ export function generateFull74DaySchedule(
     "Conhecimentos Específicos"
   ];
 
-  for (let i = 0; i < strategic74DayTemplate.length; i++) {
-    const template = strategic74DayTemplate[i];
-    const dateStr = currentDate.toISOString().split('T')[0];
-    
-    if (template.isSimulado) {
-      // Simulado Day
-      result.push({
-        topicId: `simulado-day-${i + 1}`,
-        topicName: template.simuladoName || "Simulado Geral de Sábado",
-        subject: "Simulado Geral FUNECE",
-        type: "exercise",
-        status: "planned",
-        scheduledDate: dateStr,
-        durationMinutes: template.customTime === "09:00 - 12:00" ? 180 : 120,
-        notes: template.simuladoNotes || "Praticar com foco total nas pegadinhas da banca.",
-        theoryDone: false,
-        questionsDone: false,
-        revisionDone: false
-      });
-    } else if (template.isRevisionFinal) {
-      // Final Revision Day
-      const rName = template.revisionName === "Revisão Ativa: Conhecimentos Específicos"
-        ? `Revisão Ativa: Conhecimentos Específicos de ${spec}`
-        : (template.revisionName || "Revisão Geral");
+  // 3. Pre-calculate active slot counts for each subject dynamically in the final schedule range
+  const subjectSlotCounts: Record<string, number> = {
+    "Língua Portuguesa": 0,
+    "Educação Brasileira": 0,
+    "Administração Pública": 0,
+    "Leitura e Interpretação de Dados e Indicadores": 0,
+    "Conhecimentos Específicos": 0
+  };
 
-      result.push({
-        topicId: `revision-day-${i + 1}`,
-        topicName: rName,
-        subject: "Revisão de Véspera",
-        type: "revision",
-        status: "planned",
-        scheduledDate: dateStr,
-        durationMinutes: 120,
-        notes: "Revisão integradora do conteúdo estudado focado nas maiores recorrências da banca FUNECE/UECE.",
-        theoryDone: false,
-        questionsDone: false,
-        revisionDone: false
-      });
-    } else if (template.isConcurso) {
+  let simDate = new Date(start);
+  for (let i = 0; i < totalDays; i++) {
+    const year = simDate.getFullYear();
+    const month = String(simDate.getMonth() + 1).padStart(2, '0');
+    const day = String(simDate.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+
+    const isExamDay = (dateStr === examDateStr) || (i === totalDays - 1);
+    const isDayBeforeExam = (i === totalDays - 2);
+
+    if (!isExamDay && !isDayBeforeExam) {
+      const dayOfWeek = simDate.getDay();
+      const isStudyDay = studyDays.includes(dayOfWeek);
+      if (isStudyDay) {
+        const numTopicsForDay = dailyHours >= 4 ? 4 : 3;
+        const startIdx = (i * numTopicsForDay) % subjectKeys.length;
+        for (let s = 0; s < numTopicsForDay; s++) {
+          const idx = (startIdx + s) % subjectKeys.length;
+          const subj = subjectKeys[idx];
+          if (subjectSlotCounts[subj] !== undefined) {
+            subjectSlotCounts[subj]++;
+          }
+        }
+      }
+    }
+    simDate.setDate(simDate.getDate() + 1);
+  }
+
+  // Helper to chunk topics evenly to match slots and guarantee 100% coverage
+  function getChunksForSubject(arr: ContentTopic[], numChunks: number): ContentTopic[][] {
+    if (numChunks <= 0) return [];
+    if (arr.length === 0) return [];
+
+    const chunks: ContentTopic[][] = [];
+
+    if (arr.length <= numChunks) {
+      // More slots than topics: cycle list to fill all slots
+      for (let i = 0; i < numChunks; i++) {
+        chunks.push([arr[i % arr.length]]);
+      }
+    } else {
+      // More topics than slots: group/chunk topics to fit slots exactly (100% coverage)
+      const minSize = Math.floor(arr.length / numChunks);
+      const extra = arr.length % numChunks;
+
+      let index = 0;
+      for (let i = 0; i < numChunks; i++) {
+        const size = minSize + (i < extra ? 1 : 0);
+        chunks.push(arr.slice(index, index + size));
+        index += size;
+      }
+    }
+
+    return chunks;
+  }
+
+  // Pre-generate chunks for all subjects
+  const subjectChunks: Record<string, ContentTopic[][]> = {
+    "Língua Portuguesa": getChunksForSubject(sortedGroups["Língua Portuguesa"], subjectSlotCounts["Língua Portuguesa"]),
+    "Educação Brasileira": getChunksForSubject(sortedGroups["Educação Brasileira"], subjectSlotCounts["Educação Brasileira"]),
+    "Administração Pública": getChunksForSubject(sortedGroups["Administração Pública"], subjectSlotCounts["Administração Pública"]),
+    "Leitura e Interpretação de Dados e Indicadores": getChunksForSubject(sortedGroups["Leitura e Interpretação de Dados e Indicadores"], subjectSlotCounts["Leitura e Interpretação de Dados e Indicadores"]),
+    "Conhecimentos Específicos": getChunksForSubject(sortedGroups["Conhecimentos Específicos"], subjectSlotCounts["Conhecimentos Específicos"])
+  };
+
+  const chunkPointers: Record<string, number> = {
+    "Língua Portuguesa": 0,
+    "Educação Brasileira": 0,
+    "Administração Pública": 0,
+    "Leitura e Interpretação de Dados e Indicadores": 0,
+    "Conhecimentos Específicos": 0
+  };
+
+  const getNextChunkFromSubject = (subj: string): ContentTopic[] | null => {
+    const chunks = subjectChunks[subj];
+    if (!chunks || chunks.length === 0) return null;
+    const idx = chunkPointers[subj];
+    chunkPointers[subj] = idx + 1;
+    return chunks[idx % chunks.length] || null;
+  };
+
+  // Helper to determine question targets per FUNECE blueprint
+  const getQuestionsCountForSubject = (subj: string): number => {
+    if (subj.includes("Português") || subj.includes("Portuguesa")) return 8;
+    if (subj.includes("Educação") || subj.includes("Didática") || subj.includes("Temas Educacionais")) return 8;
+    if (subj.includes("Administração") || subj.includes("Pública")) return 6;
+    if (subj.includes("Leitura") || subj.includes("Indicadores") || subj.includes("Dados")) return 8;
+    if (subj.includes("Específicos") || subj.includes("Específico")) return 50;
+    return 10; // Default fallback
+  };
+
+  currentDate = new Date(start);
+
+  for (let i = 0; i < totalDays; i++) {
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const day = String(currentDate.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+
+    const isExamDay = (dateStr === examDateStr) || (i === totalDays - 1);
+    const isDayBeforeExam = (i === totalDays - 2);
+    
+    if (isExamDay) {
       // Exam Day
       result.push({
         topicId: "concurso-oficial",
-        topicName: "GRANDE DIA DA SUA APROVAÇÃO! PROVA OFICIAL SEDUC-CE 2026",
+        topicName: `GRANDE DIA DA SUA APROVAÇÃO! PROVA OFICIAL SEDUC-CE (${spec})`,
         subject: "CONCURSO SELEÇÃO",
         type: "exercise",
         status: "planned",
@@ -411,33 +484,83 @@ export function generateFull74DaySchedule(
         questionsDone: false,
         revisionDone: false
       });
-    } else {
-      // Standard study day - Schedule 4 subtopics from different subjects
-      // We choose 4 subjects by excluding one of them in rotation (i % 5)
-      const excludedIndex = i % 5;
-      const activeSubjectsForDay = subjectKeys.filter((_, idx) => idx !== excludedIndex);
-      
-      const dailyTimeMinutes = settings.dailyStudyHours * 60;
-      const timePerActivity = Math.round(dailyTimeMinutes / activeSubjectsForDay.length);
-
-      activeSubjectsForDay.forEach(subj => {
-        const topic = getNextTopicFromSubject(subj);
-        if (topic) {
-          result.push({
-            topicId: topic.id,
-            topicName: topic.name,
-            subject: topic.subject,
-            type: "theory",
-            status: "planned",
-            scheduledDate: dateStr,
-            durationMinutes: timePerActivity,
-            notes: `[Eixo: ${topic.axis}] Estudo direcionado do microtópico do edital. Carga de relevância: ${topic.relevance} (${topic.importanceScore}%).`,
-            theoryDone: false,
-            questionsDone: false,
-            revisionDone: false
-          });
-        }
+    } else if (isDayBeforeExam) {
+      // Final Revision Day
+      result.push({
+        topicId: `revision-day-${i + 1}`,
+        topicName: "Revisão de Véspera e Descanso Mental Absoluto",
+        subject: "Revisão de Véspera",
+        type: "revision",
+        status: "planned",
+        scheduledDate: dateStr,
+        durationMinutes: 120,
+        notes: "Dia reservado para repouso mental completo e controle de ansiedade pré-prova. Confie na sua trajetória de preparação!",
+        theoryDone: false,
+        questionsDone: false,
+        revisionDone: false
       });
+    } else {
+      const dayOfWeek = currentDate.getDay(); // 0 is Sunday, 6 is Saturday
+      const isStudyDay = studyDays.includes(dayOfWeek);
+
+      if (!isStudyDay) {
+        // Rest Day if not selected as study day
+        result.push({
+          topicId: `rest-day-${i + 1}`,
+          topicName: "Descanso Planejado e Equilíbrio Emocional",
+          subject: "Descanso",
+          type: "revision",
+          status: "planned",
+          scheduledDate: dateStr,
+          durationMinutes: 60,
+          notes: "Consolidação de memória e descanso proativo. Recupere as energias física e mental para os próximos ciclos de alto rendimento.",
+          theoryDone: false,
+          questionsDone: false,
+          revisionDone: false
+        });
+      } else {
+        // Study day - schedule 3 to 4 unique subjects based on available study hours
+        const numTopicsForDay = dailyHours >= 4 ? 4 : 3;
+        
+        const activeSubjectsForDay: string[] = [];
+        const startIdx = (i * numTopicsForDay) % subjectKeys.length;
+        for (let s = 0; s < numTopicsForDay; s++) {
+          const idx = (startIdx + s) % subjectKeys.length;
+          activeSubjectsForDay.push(subjectKeys[idx]);
+        }
+        
+        const dailyTimeMinutes = dailyHours * 60;
+        const timePerActivity = Math.round(dailyTimeMinutes / activeSubjectsForDay.length);
+
+        activeSubjectsForDay.forEach(subj => {
+          const chunk = getNextChunkFromSubject(subj);
+          if (chunk && chunk.length > 0) {
+            const questionsCount = getQuestionsCountForSubject(subj);
+            const topicId = chunk.map(t => t.id).join(",");
+            const topicName = chunk.map(t => t.name).join(" + ");
+            
+            const notesText = chunk.length === 1 
+              ? `[${chunk[0].axis}] Estudo minucioso e sequencial do edital. Resolver exatamente ${questionsCount} questões focadas deste assunto para fixar o aprendizado.`
+              : `[Bloco Combinado] Estudo consolidado de microtópicos para garantir cobertura de 100% do edital:\n` + 
+                chunk.map((t, idx) => `   ${idx + 1}. [${t.axis}] ${t.name}`).join("\n") +
+                `\n👉 Resolver no mínimo ${questionsCount} questões focadas destes assuntos no simulador para fixar.`;
+
+            result.push({
+              topicId: topicId,
+              topicName: topicName,
+              subject: chunk[0].subject,
+              type: "theory",
+              status: "planned",
+              scheduledDate: dateStr,
+              durationMinutes: timePerActivity,
+              notes: notesText,
+              theoryDone: false,
+              questionsDone: false,
+              revisionDone: false
+            });
+          }
+        });
+      }
     }
 
     // Advance 1 day

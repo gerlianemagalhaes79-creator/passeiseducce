@@ -11,11 +11,17 @@ import {
   Flame,
   Award,
   BookMarked,
-  User
+  User,
+  Users,
+  LogOut,
+  ShieldAlert
 } from "lucide-react";
 import { ContentTopic, StudyActivity, Question, CandidateSettings, MistakeRecord } from "./types";
 import { generateFull74DaySchedule } from "./lib/calendarGenerator";
 import { getCompleteSyllabusSubjects } from "./data/completeSyllabus";
+import { auth, db } from "./lib/firebase";
+import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 // Components
 import Dashboard from "./components/Dashboard";
@@ -25,6 +31,7 @@ import QuestionSimulator from "./components/QuestionSimulator";
 import MistakesNotebook from "./components/MistakesNotebook";
 import ProfessorMentor from "./components/ProfessorMentor";
 import IdentificationTab from "./components/IdentificationTab";
+import UserManagement from "./components/UserManagement";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>("dashboard");
@@ -32,6 +39,13 @@ export default function App() {
   const [supabaseStatus, setSupabaseStatus] = useState<{ enabled: boolean; tablesMissing: boolean; setupSql: string } | null>(null);
   const [showSqlSetup, setShowSqlSetup] = useState<boolean>(false);
   const [copiedSql, setCopiedSql] = useState<boolean>(false);
+
+  // Google Authentication and Authorization states
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
+  const [checkingAuth, setCheckingAuth] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Core Educational States
   const [topics, setTopics] = useState<ContentTopic[]>([]);
@@ -96,8 +110,84 @@ export default function App() {
     return list;
   }, [topics, settings.specialty]);
 
+  // Google Auth observer and authorization checker
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        setCheckingAuth(true);
+        const email = currentUser.email?.toLowerCase().trim() || "";
+        
+        // 1. Bypass & authorize the core admin email explicitly
+        if (email === "gerlianemagalhaes79@gmail.com") {
+          setIsAuthorized(true);
+          setCheckingAuth(false);
+          try {
+            await setDoc(doc(db, "authorized_users", email), {
+              role: "admin",
+              addedBy: "System",
+              createdAt: new Date().toISOString()
+            });
+          } catch (e) {
+            console.error("Bypass setDoc error:", e);
+          }
+          return;
+        }
+
+        // 2. Query Firestore collection to see if they are a whitelisted user
+        try {
+          const userDocRef = doc(db, "authorized_users", email);
+          const userDoc = await getDoc(userDocRef);
+          if (userDoc.exists()) {
+            setIsAuthorized(true);
+          } else {
+            setIsAuthorized(false);
+          }
+        } catch (err) {
+          console.error("Erro ao verificar e-mail autorizado:", err);
+          setIsAuthorized(false);
+        } finally {
+          setCheckingAuth(false);
+        }
+      } else {
+        setIsAuthorized(false);
+        setCheckingAuth(false);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleGoogleSignIn = async () => {
+    setAuthError(null);
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      await signInWithPopup(auth, provider);
+    } catch (err: any) {
+      console.error("Erro no login com Google:", err);
+      setAuthError("Falha ao autenticar com a Conta Google.");
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+      setIsAuthorized(false);
+    } catch (err) {
+      console.error("Erro ao sair:", err);
+    }
+  };
+
   // Initialize from REST API
   useEffect(() => {
+    if (!isAuthorized) {
+      setIsLoading(false);
+      return;
+    }
+
     const initializeData = async () => {
       try {
         setIsLoading(true);
@@ -417,6 +507,10 @@ export default function App() {
             mistakes={mistakes}
           />
         );
+      case "users":
+        return (
+          <UserManagement />
+        );
       default:
         return (
           <Dashboard 
@@ -429,6 +523,97 @@ export default function App() {
         );
     }
   };
+
+  // 1. Loading state for Firebase Auth
+  if (authLoading || (user && checkingAuth)) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-3 font-sans text-slate-800 antialiased">
+        <div className="relative flex h-8 w-8">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-green opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-8 w-8 bg-brand-navy"></span>
+        </div>
+        <p className="text-xs font-bold text-slate-400">Verificando credenciais e permissões de acesso...</p>
+      </div>
+    );
+  }
+
+  // 2. Gate: Unauthenticated User
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-brand-light-navy/25 flex flex-col font-sans text-slate-800 antialiased py-12 px-4 sm:px-6 lg:px-8 justify-center items-center">
+        <div className="max-w-md w-full space-y-8 bg-white border border-slate-100 p-8 rounded-2xl shadow-lg text-center">
+          <div className="mx-auto w-16 h-16 bg-brand-navy rounded-2xl flex items-center justify-center border border-brand-navy/5 text-white shadow-md">
+            <GraduationCap className="w-10 h-10 text-brand-green" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-extrabold text-brand-navy tracking-tight font-display">
+              Aprova <span className="text-brand-green">Professor</span>
+            </h1>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Plataforma Preparatória SEDUC-CE</p>
+          </div>
+          
+          <div className="bg-slate-50 p-4 rounded-xl text-xs text-slate-600 font-semibold leading-relaxed">
+            Bem-vindo ao portal de estudos preparatórios premium. Esta plataforma é de uso exclusivo para candidatos autorizados.
+          </div>
+
+          <button
+            onClick={handleGoogleSignIn}
+            className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all active:scale-[0.98] cursor-pointer text-xs"
+          >
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
+            <span>Entrar com a Conta Google</span>
+          </button>
+          
+          {authError && (
+            <p className="text-xs font-bold text-red-500 mt-2">{authError}</p>
+          )}
+
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider pt-2">
+            Acesso Restrito. Em caso de dúvidas, contate o administrador.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Gate: Authenticated but Not Whitelisted User
+  if (user && !isAuthorized) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-brand-light-navy/25 flex flex-col font-sans text-slate-800 antialiased py-12 px-4 sm:px-6 lg:px-8 justify-center items-center">
+        <div className="max-w-md w-full space-y-6 bg-white border border-slate-100 p-8 rounded-2xl shadow-lg text-center">
+          <div className="mx-auto w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center border border-red-100 text-red-600 shadow-sm">
+            <ShieldAlert className="w-10 h-10" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-xl font-extrabold text-red-600 tracking-tight font-display">
+              Acesso Não Autorizado
+            </h1>
+            <p className="text-xs text-slate-500 font-bold">A conta <strong className="text-slate-800">{user.email}</strong> não está cadastrada na lista de permissões.</p>
+          </div>
+          
+          <div className="bg-slate-50 p-4 rounded-xl text-xs text-slate-600 leading-relaxed font-semibold">
+            Solicite a liberação deste e-mail ao administrador para que você possa acessar o simulador de provas, cronogramas e mentor de estudos.
+          </div>
+
+          <div className="flex flex-col gap-2 pt-2">
+            <button
+              onClick={handleGoogleSignIn}
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold border border-slate-200 rounded-xl text-xs transition-all cursor-pointer"
+            >
+              <span>Alternar Conta Google</span>
+            </button>
+            <button
+              onClick={handleSignOut}
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-brand-navy hover:bg-brand-navy/90 text-white font-bold rounded-xl text-xs transition-all cursor-pointer"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Sair da Conta</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -616,6 +801,18 @@ export default function App() {
                   <Sparkles className="h-4 w-4 text-brand-green" />
                   <span>Professor Mentor AI</span>
                 </button>
+
+                <button
+                  onClick={() => { setActiveTab("users"); }}
+                  className={`w-full flex items-center gap-3 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    activeTab === "users" 
+                      ? "bg-brand-light-navy text-brand-navy border-l-4 border-brand-green pl-3" 
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 border-l-4 border-transparent pl-3"
+                  }`}
+                >
+                  <Users className="h-4 w-4" />
+                  <span>Gerenciar Usuários</span>
+                </button>
               </div>
             </div>
 
@@ -661,6 +858,13 @@ export default function App() {
                 className="mt-3 w-full py-1.5 px-3 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 active:scale-[0.98] text-slate-600 rounded-lg text-[9px] font-extrabold tracking-wider uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 Editar Perfil
+              </button>
+
+              <button
+                onClick={handleSignOut}
+                className="mt-1.5 w-full py-1.5 px-3 bg-red-50 hover:bg-red-100 text-red-600 active:scale-[0.98] rounded-lg text-[9px] font-extrabold tracking-wider uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                Sair da Conta
               </button>
             </div>
           </div>

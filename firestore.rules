@@ -1,38 +1,21 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Regras de segurança para Aprova Professor
-    
-    match /content_topics/{topicId} {
-      allow read, write: if true;
+    // 1. Regras para a coleção de usuários autorizados
+    match /authorized_users/{email} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && (
+        request.auth.token.email == "gerlianemagalhaes79@gmail.com" ||
+        exists(/databases/$(database)/documents/authorized_users/$(request.auth.token.email))
+      );
     }
     
-    match /study_activities/{activityId} {
-      allow read, write: if true;
-    }
-
-    match /questions/{questionId} {
-      allow read, write: if true;
-    }
-
-    match /mistake_records/{recordId} {
-      allow read, write: if true;
-    }
-
-    match /candidate_settings/{settingId} {
-      allow read, write: if true;
-    }
-    
-    match /air_conditioners/{id} {
-      allow read, write: if true;
-    }
-    
-    match /maintenance_logs/{id} {
-      allow read, write: if true;
-    }
-    
+    // 2. Regras globais para os demais documentos do Aprova Professor
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null && (
+        request.auth.token.email == "gerlianemagalhaes79@gmail.com" ||
+        exists(/databases/$(database)/documents/authorized_users/$(request.auth.token.email))
+      );
     }
   }
 }

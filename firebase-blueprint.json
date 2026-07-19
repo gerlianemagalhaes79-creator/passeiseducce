@@ -1,56 +1,59 @@
 {
   "entities": {
-    "AirConditioner": {
-      "title": "Air Conditioner",
-      "description": "Represents an air conditioner unit in the Polyclinic",
+    "AuthorizedUser": {
+      "title": "Authorized User",
+      "description": "Represents a whitelisted user allowed to access the platform",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "tagId": { "type": "string", "description": "Patrimônio/Identificação" },
-        "brand": { "type": "string" },
-        "model": { "type": "string" },
-        "capacity": { "type": "number", "description": "Capacidade em BTUs" },
-        "location": { "type": "string", "description": "Setor/Sala" },
-        "status": { "type": "string", "enum": ["operating", "needs_maintenance", "in_maintenance", "inactive"] },
-        "installationDate": { "type": "string", "format": "date" },
-        "lastPreventiveDate": { "type": "string", "format": "date" },
-        "nextPreventiveDate": { "type": "string", "format": "date" },
+        "email": { "type": "string", "description": "The normalized lowercase Google account email" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "addedBy": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "tagId", "brand", "model", "capacity", "location", "status"]
+      "required": ["email", "role", "createdAt"]
     },
-    "MaintenanceLog": {
-      "title": "Maintenance Log",
-      "description": "Represents a preventive or corrective maintenance ticket",
+    "CandidateSetting": {
+      "title": "Candidate Setting",
+      "description": "Saves candidate configurations and specialties",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "airConditionerId": { "type": "string" },
-        "airConditionerTag": { "type": "string" },
-        "airConditionerLocation": { "type": "string" },
-        "type": { "type": "string", "enum": ["preventive", "corrective"] },
-        "status": { "type": "string", "enum": ["pending", "in_progress", "completed"] },
-        "priority": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
-        "description": { "type": "string", "description": "Relato do problema ou escopo" },
-        "checklist": { "type": "array", "description": "Checklist de preventiva" },
-        "technician": { "type": "string", "description": "Técnico responsável" },
-        "resolution": { "type": "string", "description": "Detalhes da solução" },
-        "scheduledDate": { "type": "string", "format": "date" },
-        "completionDate": { "type": "string", "format": "date" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "diagnostics": { "type": "string", "description": "IA Diagnóstico" }
+        "targetExam": { "type": "string" },
+        "examBoard": { "type": "string" },
+        "specialty": { "type": "string" },
+        "examDate": { "type": "string" },
+        "dailyStudyHours": { "type": "number" },
+        "candidateName": { "type": "string" },
+        "isAlreadyTeacher": { "type": "boolean" },
+        "createdAt": { "type": "string" }
       },
-      "required": ["id", "airConditionerId", "type", "status", "priority", "description", "createdAt"]
+      "required": ["id", "targetExam", "examBoard", "specialty", "examDate", "dailyStudyHours", "createdAt"]
     }
   },
   "firestore": {
-    "air_conditioners": {
-      "schema": "AirConditioner",
-      "description": "Collection of all air conditioning units"
+    "authorized_users": {
+      "schema": "AuthorizedUser",
+      "description": "Whitelisted emails for platform login"
     },
-    "maintenance_logs": {
-      "schema": "MaintenanceLog",
-      "description": "Collection of all maintenance tickets and logs"
+    "candidate_settings": {
+      "schema": "CandidateSetting",
+      "description": "User specific configurations"
+    },
+    "content_topics": {
+      "schema": { "$ref": "#/entities/ContentTopic" },
+      "description": "All exam syllabus content and progression status"
+    },
+    "study_activities": {
+      "schema": { "$ref": "#/entities/StudyActivity" },
+      "description": "Strategic planned daily study milestones"
+    },
+    "questions": {
+      "schema": { "$ref": "#/entities/Question" },
+      "description": "Exam questions database"
+    },
+    "mistake_records": {
+      "schema": { "$ref": "#/entities/MistakeRecord" },
+      "description": "Mistakes tracker notebook"
     }
   }
 }

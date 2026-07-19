@@ -637,7 +637,7 @@ export default function StudyCalendar({
 
   // Strategic Generator Function following user requirements and weights of SEDUC-CE
   const handleGenerateSchedule = async () => {
-    if (!confirm("Isso irá deletar todas as atividades de estudo agendadas atualmente para criar um novo cronograma completo e estratégico (74 dias alinhados ao edital SEDUC-CE). Deseja prosseguir?")) {
+    if (!confirm("Isso irá deletar todas as atividades de estudo agendadas atualmente para criar um novo cronograma estratégico, distribuído em 3 blocos diários de diferentes assuntos até o dia da prova que você inseriu. Deseja prosseguir?")) {
       return;
     }
 
@@ -649,14 +649,18 @@ export default function StudyCalendar({
         await onDeleteActivity(act.id);
       }
 
-      // 2. Generate strategic 74-day activities using candidate settings
-      const newActivities = generateFull74DaySchedule(genStartDate, settings, topics);
+      // 2. Generate strategic activities up to the exam date using candidate settings
+      const newActivities = generateFull74DaySchedule(genStartDate, settings, topics, {
+        studyDays: genStudyDays,
+        dailyHours: genDailyHours,
+        examDate: genEndDate
+      });
       for (const act of newActivities) {
         await onAddActivity(act);
       }
 
       setShowGenerator(false);
-      alert("Seu Cronograma Inteligente SEDUC-CE (74 dias estratégicos) foi gerado e distribuído no seu calendário com sucesso!");
+      alert("Seu Cronograma Inteligente SEDUC-CE foi gerado e distribuído no seu calendário com sucesso (3 blocos de estudo diários organizados até a data da prova)!");
     } catch (err) {
       console.error(err);
       alert("Erro ao gerar cronograma de estudos.");
@@ -685,12 +689,17 @@ export default function StudyCalendar({
     await onUpdateActivity(act.id, updates);
 
     // Dynamic feed-back to Content Map (Tópicos do Edital)
-    if (allCompleted) {
-      await onUpdateTopicStatus(act.topicId, 'studied', new Date().toISOString().split('T')[0]);
-    } else if (isTheoryDone || isQuestionsDone || isRevisionDone) {
-      await onUpdateTopicStatus(act.topicId, 'studying');
-    } else {
-      await onUpdateTopicStatus(act.topicId, 'not_started');
+    const topicIds = act.topicId.split(',');
+    for (const id of topicIds) {
+      const trimmedId = id.trim();
+      if (!trimmedId) continue;
+      if (allCompleted) {
+        await onUpdateTopicStatus(trimmedId, 'studied', new Date().toISOString().split('T')[0]);
+      } else if (isTheoryDone || isQuestionsDone || isRevisionDone) {
+        await onUpdateTopicStatus(trimmedId, 'studying');
+      } else {
+        await onUpdateTopicStatus(trimmedId, 'not_started');
+      }
     }
   };
 

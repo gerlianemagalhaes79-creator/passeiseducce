@@ -188,4 +188,4 @@ export async function seedFirestoreIfEmpty() {
   }
 }
 
-export { db };
+export { db, auth };
