@@ -926,18 +926,26 @@ export async function checkUserAuthorization(email: string): Promise<{ authorize
   if (useSupabase) {
     try {
       const { data, error } = await supabase.from("authorized_users").select("*").eq("email", cleanEmail);
-      if (!error && data && data.length > 0) {
+      if (error) throw error;
+      if (data && data.length > 0) {
         return { authorized: true, role: data[0].role };
       }
+      // If we are using Supabase and the select was successful but no user was found,
+      // they are definitely not authorized. Do not fall back to local DB.
+      return { authorized: false };
     } catch (err) {
       console.error("[Supabase] Failed to verify authorized user, falling back:", err);
     }
   }
 
-  // Fallback
-  const matched = await db.select().from(authorizedUsers).where(eq(authorizedUsers.email, cleanEmail));
-  if (matched && matched.length > 0) {
-    return { authorized: true, role: matched[0].role };
+  // Fallback (only reached if Supabase failed or is disabled)
+  try {
+    const matched = await db.select().from(authorizedUsers).where(eq(authorizedUsers.email, cleanEmail));
+    if (matched && matched.length > 0) {
+      return { authorized: true, role: matched[0].role };
+    }
+  } catch (dbErr) {
+    console.error("[Local DB] Failed to query authorized users:", dbErr);
   }
 
   return { authorized: false };
