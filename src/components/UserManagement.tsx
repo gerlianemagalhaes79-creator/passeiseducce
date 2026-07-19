@@ -142,7 +142,7 @@ export default function UserManagement() {
           </div>
           <div>
             <h2 className="text-lg font-extrabold text-brand-navy font-display">Gerenciamento de Acessos</h2>
-            <p className="text-xs text-slate-500">Adicione ou remova contas do Google autorizadas a acessar a plataforma.</p>
+            <p className="text-xs text-slate-500">Adicione ou remova e-mails autorizados a acessar a plataforma.</p>
           </div>
         </div>
         <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-[11px] px-3 py-1.5 rounded-lg font-bold">
@@ -157,13 +157,13 @@ export default function UserManagement() {
         <div className="lg:col-span-5 space-y-4">
           <h3 className="text-sm font-bold text-slate-800">Liberar Novo Acesso</h3>
           <p className="text-xs text-slate-500 leading-relaxed">
-            Insira o e-mail associado à Conta Google da pessoa para a qual deseja conceder acesso preparatório.
+            Insira o e-mail da pessoa para a qual deseja conceder acesso preparatório.
           </p>
 
           <form onSubmit={handleAddUser} className="space-y-3">
             <div className="space-y-1">
               <label htmlFor="user-email-input" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                E-mail da Conta Google
+                Endereço de E-mail
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
