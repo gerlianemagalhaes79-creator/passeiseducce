@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react";
 import { Users, Plus, Trash2, ShieldAlert, Loader2, Mail } from "lucide-react";
-import { collection, onSnapshot, setDoc, deleteDoc, doc } from "firebase/firestore";
-import { db, auth } from "../lib/firebase";
 import { AuthorizedUser } from "../types";
 
 export default function UserManagement() {
@@ -12,45 +10,43 @@ export default function UserManagement() {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Real-time listener for authorized users collection
+  // Load authorized users from API endpoint
   useEffect(() => {
-    const usersCol = collection(db, "authorized_users");
-    const unsubscribe = onSnapshot(
-      usersCol,
-      (snapshot) => {
-        const list: AuthorizedUser[] = [];
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          list.push({
-            email: doc.id,
-            role: data.role || "user",
-            addedBy: data.addedBy || "admin",
-            createdAt: data.createdAt || new Date().toISOString(),
-          });
-        });
-        
-        // Ensure our default admin is always in the view list even if firestore is being seeded
-        const hasAdmin = list.some(u => u.email === "gerlianemagalhaes79@gmail.com");
-        if (!hasAdmin) {
-          list.unshift({
-            email: "gerlianemagalhaes79@gmail.com",
-            role: "admin",
-            addedBy: "System",
-            createdAt: new Date().toISOString(),
-          });
+    let active = true;
+    const loadUsers = async () => {
+      try {
+        const res = await fetch("/api/users");
+        if (!res.ok) throw new Error("Failed to fetch");
+        const list = await res.json();
+        if (active) {
+          // Ensure our default admin is always in the view list
+          const hasAdmin = list.some((u: any) => u.email === "gerlianemagalhaes79@gmail.com");
+          if (!hasAdmin) {
+            list.unshift({
+              email: "gerlianemagalhaes79@gmail.com",
+              role: "admin",
+              addedBy: "System",
+              createdAt: new Date().toISOString(),
+            });
+          }
+          setUsers(list.sort((a: any, b: any) => a.email.localeCompare(b.email)));
+          setIsLoading(false);
         }
-
-        setUsers(list.sort((a, b) => a.email.localeCompare(b.email)));
-        setIsLoading(false);
-      },
-      (err) => {
-        console.error("Erro ao escutar usuários autorizados:", err);
-        setError("Não foi possível carregar a lista de usuários autorizados.");
-        setIsLoading(false);
+      } catch (err) {
+        console.error("Erro ao carregar usuários autorizados:", err);
+        if (active) {
+          setError("Não foi possível carregar a lista de usuários autorizados.");
+          setIsLoading(false);
+        }
       }
-    );
-
-    return () => unsubscribe();
+    };
+    
+    loadUsers();
+    const interval = setInterval(loadUsers, 10000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const handleAddUser = async (e: React.FormEvent) => {
@@ -79,17 +75,29 @@ export default function UserManagement() {
 
     setIsAdding(true);
     try {
-      const userRef = doc(db, "authorized_users", emailToUse);
-      await setDoc(userRef, {
-        role: "user",
-        addedBy: auth.currentUser?.email || "gerlianemagalhaes79@gmail.com",
-        createdAt: new Date().toISOString(),
+      const storedUser = localStorage.getItem("aprova_user");
+      const addedBy = storedUser ? JSON.parse(storedUser).email : "gerlianemagalhaes79@gmail.com";
+
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailToUse, role: "user", addedBy })
       });
+      if (!res.ok) throw new Error("Falha ao salvar");
+      
+      const savedUser = await res.json();
+      setUsers(prev => [...prev.filter(u => u.email !== emailToUse), {
+        email: savedUser.email,
+        role: savedUser.role,
+        addedBy: savedUser.addedBy,
+        createdAt: savedUser.createdAt
+      }].sort((a, b) => a.email.localeCompare(b.email)));
+
       setNewEmail("");
       setSuccessMsg(`Usuário ${emailToUse} adicionado com sucesso!`);
       setTimeout(() => setSuccessMsg(null), 4000);
     } catch (err: any) {
-      console.error("Erro ao adicionar usuário no Firestore:", err);
+      console.error("Erro ao adicionar usuário:", err);
       setError("Permissão negada ou erro ao salvar o usuário. Certifique-se de que sua conta possui acesso de administrador.");
     } finally {
       setIsAdding(false);
@@ -110,12 +118,16 @@ export default function UserManagement() {
     setSuccessMsg(null);
 
     try {
-      const userRef = doc(db, "authorized_users", email);
-      await deleteDoc(userRef);
+      const res = await fetch(`/api/users/${encodeURIComponent(email)}`, {
+        method: "DELETE"
+      });
+      if (!res.ok) throw new Error("Falha ao deletar");
+      
+      setUsers(prev => prev.filter(u => u.email !== email));
       setSuccessMsg(`Acesso de ${email} revogado com sucesso!`);
       setTimeout(() => setSuccessMsg(null), 4000);
     } catch (err: any) {
-      console.error("Erro ao remover usuário do Firestore:", err);
+      console.error("Erro ao remover usuário:", err);
       setError("Erro ao revogar o acesso do usuário. Verifique suas permissões.");
     }
   };

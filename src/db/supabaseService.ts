@@ -1,6 +1,6 @@
 import { supabase } from "./supabase.ts";
 import { db } from "./index.ts";
-import { candidateSettings, contentTopics, studyActivities, questions, mistakeRecords } from "./schema.ts";
+import { candidateSettings, contentTopics, studyActivities, questions, mistakeRecords, authorizedUsers } from "./schema.ts";
 import { eq } from "drizzle-orm";
 import { INITIAL_CONTENT_TOPICS, SEEDED_QUESTIONS } from "../data/strategicBase.ts";
 
@@ -90,12 +90,21 @@ CREATE TABLE IF NOT EXISTS mistake_records (
   review_count INTEGER NOT NULL DEFAULT 0
 );
 
+-- 5b. Create table for Authorized Users
+CREATE TABLE IF NOT EXISTS authorized_users (
+  email TEXT PRIMARY KEY,
+  role TEXT NOT NULL DEFAULT 'user',
+  added_by TEXT NOT NULL DEFAULT 'System',
+  created_at TEXT NOT NULL
+);
+
 -- 6. Enable Row Level Security (RLS) on all tables to prevent direct, unauthenticated API misuse
 ALTER TABLE candidate_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE content_topics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE study_activities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE mistake_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE authorized_users ENABLE ROW LEVEL SECURITY;
 
 -- 7. Clean up existing policies (if re-running the script) to avoid duplicates
 DROP POLICY IF EXISTS "Allow secure backend on candidate_settings" ON candidate_settings;
@@ -103,6 +112,7 @@ DROP POLICY IF EXISTS "Allow secure backend on content_topics" ON content_topics
 DROP POLICY IF EXISTS "Allow secure backend on study_activities" ON study_activities;
 DROP POLICY IF EXISTS "Allow secure backend on questions" ON questions;
 DROP POLICY IF EXISTS "Allow secure backend on mistake_records" ON mistake_records;
+DROP POLICY IF EXISTS "Allow secure backend on authorized_users" ON authorized_users;
 
 -- 8. Create secure access policies based on secret App Signature header
 -- This allows our Node backend to execute database operations securely using the Anon Key
@@ -130,6 +140,11 @@ CREATE POLICY "Allow secure backend on questions" ON questions
   WITH CHECK (coalesce(current_setting('request.headers', true)::jsonb->>'x-app-signature', '') = 'default-secret-signature-123456');
 
 CREATE POLICY "Allow secure backend on mistake_records" ON mistake_records
+  FOR ALL TO anon, authenticated
+  USING (coalesce(current_setting('request.headers', true)::jsonb->>'x-app-signature', '') = 'default-secret-signature-123456')
+  WITH CHECK (coalesce(current_setting('request.headers', true)::jsonb->>'x-app-signature', '') = 'default-secret-signature-123456');
+
+CREATE POLICY "Allow secure backend on authorized_users" ON authorized_users
   FOR ALL TO anon, authenticated
   USING (coalesce(current_setting('request.headers', true)::jsonb->>'x-app-signature', '') = 'default-secret-signature-123456')
   WITH CHECK (coalesce(current_setting('request.headers', true)::jsonb->>'x-app-signature', '') = 'default-secret-signature-123456');
@@ -235,6 +250,18 @@ export async function initAndSeedSupabase() {
         const batch = mappedQs.slice(i, i + 30);
         await supabase.from("questions").insert(batch);
       }
+    }
+
+    // 4. Seed Default Admin in Authorized Users if empty
+    const { data: users, error: uErr } = await supabase.from("authorized_users").select("email").limit(1);
+    if (!uErr && (!users || users.length === 0)) {
+      console.log("[Supabase] Seeding default administrator account...");
+      await supabase.from("authorized_users").insert({
+        email: "gerlianemagalhaes79@gmail.com",
+        role: "admin",
+        added_by: "System",
+        created_at: new Date().toISOString()
+      });
     }
 
     console.log("[Supabase] Seeding checks completed successfully.");
@@ -805,3 +832,114 @@ export async function deleteMistakeRecord(id: string) {
   await db.delete(mistakeRecords).where(eq(mistakeRecords.id, id));
   return true;
 }
+
+// 6. AUTHORIZED USERS
+export async function getAuthorizedUsers() {
+  if (useSupabase) {
+    try {
+      const { data, error } = await supabase.from("authorized_users").select("*");
+      if (!error && data) {
+        return data.map(r => ({
+          email: r.email,
+          role: r.role,
+          addedBy: r.added_by,
+          createdAt: r.created_at
+        }));
+      }
+    } catch (err) {
+      console.error("[Supabase] Failed to fetch authorized users, falling back:", err);
+    }
+  }
+
+  // Fallback
+  const list = await db.select().from(authorizedUsers);
+  return list.map(r => ({
+    email: r.email,
+    role: r.role,
+    addedBy: r.addedBy,
+    createdAt: r.createdAt
+  }));
+}
+
+export async function createAuthorizedUser(email: string, role: string, addedBy: string) {
+  const newUser = {
+    email,
+    role,
+    added_by: addedBy,
+    created_at: new Date().toISOString()
+  };
+
+  if (useSupabase) {
+    try {
+      const { error } = await supabase.from("authorized_users").insert(newUser);
+      if (!error) {
+        return {
+          email,
+          role,
+          addedBy,
+          createdAt: newUser.created_at
+        };
+      }
+    } catch (err) {
+      console.error("[Supabase] Failed to insert authorized user, falling back:", err);
+    }
+  }
+
+  // Fallback
+  await db.insert(authorizedUsers).values({
+    email,
+    role,
+    addedBy,
+    createdAt: newUser.created_at
+  });
+  return {
+    email,
+    role,
+    addedBy,
+    createdAt: newUser.created_at
+  };
+}
+
+export async function deleteAuthorizedUser(email: string) {
+  if (useSupabase) {
+    try {
+      const { error } = await supabase.from("authorized_users").delete().eq("email", email);
+      if (!error) return true;
+    } catch (err) {
+      console.error("[Supabase] Failed to delete authorized user, falling back:", err);
+    }
+  }
+
+  // Fallback
+  await db.delete(authorizedUsers).where(eq(authorizedUsers.email, email));
+  return true;
+}
+
+export async function checkUserAuthorization(email: string): Promise<{ authorized: boolean; role?: string }> {
+  const cleanEmail = email.trim().toLowerCase();
+  
+  // Explicit bypass for the primary administrator
+  if (cleanEmail === "gerlianemagalhaes79@gmail.com") {
+    return { authorized: true, role: "admin" };
+  }
+
+  if (useSupabase) {
+    try {
+      const { data, error } = await supabase.from("authorized_users").select("*").eq("email", cleanEmail);
+      if (!error && data && data.length > 0) {
+        return { authorized: true, role: data[0].role };
+      }
+    } catch (err) {
+      console.error("[Supabase] Failed to verify authorized user, falling back:", err);
+    }
+  }
+
+  // Fallback
+  const matched = await db.select().from(authorizedUsers).where(eq(authorizedUsers.email, cleanEmail));
+  if (matched && matched.length > 0) {
+    return { authorized: true, role: matched[0].role };
+  }
+
+  return { authorized: false };
+}
+

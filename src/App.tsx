@@ -19,10 +19,6 @@ import {
 import { ContentTopic, StudyActivity, Question, CandidateSettings, MistakeRecord } from "./types";
 import { generateFull74DaySchedule } from "./lib/calendarGenerator";
 import { getCompleteSyllabusSubjects } from "./data/completeSyllabus";
-import { auth, db } from "./lib/firebase";
-import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-
 // Components
 import Dashboard from "./components/Dashboard";
 import ContentMap from "./components/ContentMap";
@@ -33,6 +29,107 @@ import ProfessorMentor from "./components/ProfessorMentor";
 import IdentificationTab from "./components/IdentificationTab";
 import UserManagement from "./components/UserManagement";
 
+interface LoginFormProps {
+  handleEmailSignIn: (email: string) => Promise<void>;
+  authError: string | null;
+}
+
+function LoginForm({ handleEmailSignIn, authError }: LoginFormProps) {
+  const [emailInput, setEmailInput] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    await handleEmailSignIn(emailInput);
+    setSubmitting(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-brand-light-navy/25 flex flex-col font-sans text-slate-800 antialiased py-12 px-4 sm:px-6 lg:px-8 justify-center items-center">
+      <div className="max-w-md w-full space-y-6 bg-white border border-slate-100 p-8 rounded-2xl shadow-lg">
+        <div className="text-center space-y-3">
+          <div className="mx-auto w-16 h-16 bg-brand-navy rounded-2xl flex items-center justify-center border border-brand-navy/5 text-white shadow-md">
+            <GraduationCap className="w-10 h-10 text-brand-green" />
+          </div>
+          <div className="space-y-1">
+            <h1 className="text-2xl font-extrabold text-brand-navy tracking-tight font-display">
+              Aprova <span className="text-brand-green">Professor</span>
+            </h1>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Plataforma Preparatória SEDUC-CE</p>
+          </div>
+        </div>
+        
+        <div className="bg-slate-50 p-4 rounded-xl text-xs text-slate-600 font-semibold leading-relaxed text-center">
+          Bem-vindo ao portal de estudos preparatórios premium. Esta plataforma é de uso exclusivo para candidatos autorizados.
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5 text-left">
+            <label htmlFor="login-email" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              Seu E-mail Cadastrado
+            </label>
+            <input
+              id="login-email"
+              type="email"
+              placeholder="nome@exemplo.com"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              required
+              disabled={submitting}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-green/20 focus:border-brand-green transition-all"
+            />
+          </div>
+
+          {authError && (
+            <div className="p-3 bg-red-50 text-red-700 text-xs rounded-xl font-bold border border-red-100 text-left leading-relaxed">
+              {authError}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full flex items-center justify-center gap-2 py-3 bg-brand-navy hover:bg-brand-navy/95 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all active:scale-[0.98] cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed block"
+          >
+            {submitting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0"></div>
+                <span>Verificando Acesso...</span>
+              </>
+            ) : (
+              <span>Entrar na Plataforma</span>
+            )}
+          </button>
+        </form>
+
+        <div className="relative flex py-2 items-center">
+          <div className="flex-grow border-t border-slate-100"></div>
+          <span className="flex-shrink mx-4 text-[9px] font-bold text-slate-400 uppercase tracking-widest">Atalho Rápido</span>
+          <div className="flex-grow border-t border-slate-100"></div>
+        </div>
+
+        <button
+          onClick={async () => {
+            setSubmitting(true);
+            setEmailInput("gerlianemagalhaes79@gmail.com");
+            await handleEmailSignIn("gerlianemagalhaes79@gmail.com");
+            setSubmitting(false);
+          }}
+          disabled={submitting}
+          className="w-full py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-extrabold uppercase tracking-wider rounded-xl border border-emerald-100 transition-all flex items-center justify-center gap-2 cursor-pointer"
+        >
+          Entrar como Administrador Principal
+        </button>
+
+        <p className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider pt-2 border-t border-slate-50">
+          Acesso Restrito. Em caso de dúvidas, contate o administrador.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>("dashboard");
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -40,8 +137,8 @@ export default function App() {
   const [showSqlSetup, setShowSqlSetup] = useState<boolean>(false);
   const [copiedSql, setCopiedSql] = useState<boolean>(false);
 
-  // Google Authentication and Authorization states
-  const [user, setUser] = useState<FirebaseUser | null>(null);
+  // Authentication and Authorization states
+  const [user, setUser] = useState<{ email: string; role: string } | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
   const [checkingAuth, setCheckingAuth] = useState<boolean>(false);
@@ -110,75 +207,58 @@ export default function App() {
     return list;
   }, [topics, settings.specialty]);
 
-  // Google Auth observer and authorization checker
+  // Auth local recovery on mount
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        setCheckingAuth(true);
-        const email = currentUser.email?.toLowerCase().trim() || "";
-        
-        // 1. Bypass & authorize the core admin email explicitly
-        if (email === "gerlianemagalhaes79@gmail.com") {
-          setIsAuthorized(true);
-          setCheckingAuth(false);
-          try {
-            await setDoc(doc(db, "authorized_users", email), {
-              role: "admin",
-              addedBy: "System",
-              createdAt: new Date().toISOString()
-            });
-          } catch (e) {
-            console.error("Bypass setDoc error:", e);
-          }
-          return;
-        }
-
-        // 2. Query Firestore collection to see if they are a whitelisted user
-        try {
-          const userDocRef = doc(db, "authorized_users", email);
-          const userDoc = await getDoc(userDocRef);
-          if (userDoc.exists()) {
-            setIsAuthorized(true);
-          } else {
-            setIsAuthorized(false);
-          }
-        } catch (err) {
-          console.error("Erro ao verificar e-mail autorizado:", err);
-          setIsAuthorized(false);
-        } finally {
-          setCheckingAuth(false);
-        }
-      } else {
-        setIsAuthorized(false);
-        setCheckingAuth(false);
+    const storedUser = localStorage.getItem("aprova_user");
+    if (storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser);
+        setUser(parsed);
+        setIsAuthorized(true);
+      } catch (err) {
+        console.error("Failed to parse stored auth user:", err);
       }
-      setAuthLoading(false);
-    });
-
-    return () => unsubscribe();
+    }
+    setAuthLoading(false);
   }, []);
 
-  const handleGoogleSignIn = async () => {
+  const handleEmailSignIn = async (email: string) => {
     setAuthError(null);
+    setCheckingAuth(true);
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      setAuthError("Por favor, insira um e-mail válido.");
+      setCheckingAuth(false);
+      return;
+    }
+
     try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
-      await signInWithPopup(auth, provider);
-    } catch (err: any) {
-      console.error("Erro no login com Google:", err);
-      setAuthError("Falha ao autenticar com a Conta Google.");
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanEmail })
+      });
+      if (!res.ok) throw new Error("Connection failed");
+      const data = await res.json();
+      if (data.authorized && data.user) {
+        setUser(data.user);
+        setIsAuthorized(true);
+        localStorage.setItem("aprova_user", JSON.stringify(data.user));
+      } else {
+        setAuthError("Este e-mail não possui permissão de acesso. Solicite a liberação ao administrador.");
+      }
+    } catch (err) {
+      console.error("Login verification failed:", err);
+      setAuthError("Falha ao conectar com o servidor para autenticar.");
+    } finally {
+      setCheckingAuth(false);
     }
   };
 
   const handleSignOut = async () => {
-    try {
-      await signOut(auth);
-      setUser(null);
-      setIsAuthorized(false);
-    } catch (err) {
-      console.error("Erro ao sair:", err);
-    }
+    localStorage.removeItem("aprova_user");
+    setUser(null);
+    setIsAuthorized(false);
   };
 
   // Initialize from REST API
@@ -524,7 +604,7 @@ export default function App() {
     }
   };
 
-  // 1. Loading state for Firebase Auth
+  // 1. Loading state for Auth
   if (authLoading || (user && checkingAuth)) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-3 font-sans text-slate-800 antialiased">
@@ -539,80 +619,7 @@ export default function App() {
 
   // 2. Gate: Unauthenticated User
   if (!user) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-brand-light-navy/25 flex flex-col font-sans text-slate-800 antialiased py-12 px-4 sm:px-6 lg:px-8 justify-center items-center">
-        <div className="max-w-md w-full space-y-8 bg-white border border-slate-100 p-8 rounded-2xl shadow-lg text-center">
-          <div className="mx-auto w-16 h-16 bg-brand-navy rounded-2xl flex items-center justify-center border border-brand-navy/5 text-white shadow-md">
-            <GraduationCap className="w-10 h-10 text-brand-green" />
-          </div>
-          <div className="space-y-2">
-            <h1 className="text-2xl font-extrabold text-brand-navy tracking-tight font-display">
-              Aprova <span className="text-brand-green">Professor</span>
-            </h1>
-            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Plataforma Preparatória SEDUC-CE</p>
-          </div>
-          
-          <div className="bg-slate-50 p-4 rounded-xl text-xs text-slate-600 font-semibold leading-relaxed">
-            Bem-vindo ao portal de estudos preparatórios premium. Esta plataforma é de uso exclusivo para candidatos autorizados.
-          </div>
-
-          <button
-            onClick={handleGoogleSignIn}
-            className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all active:scale-[0.98] cursor-pointer text-xs"
-          >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
-            <span>Entrar com a Conta Google</span>
-          </button>
-          
-          {authError && (
-            <p className="text-xs font-bold text-red-500 mt-2">{authError}</p>
-          )}
-
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider pt-2">
-            Acesso Restrito. Em caso de dúvidas, contate o administrador.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // 3. Gate: Authenticated but Not Whitelisted User
-  if (user && !isAuthorized) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-brand-light-navy/25 flex flex-col font-sans text-slate-800 antialiased py-12 px-4 sm:px-6 lg:px-8 justify-center items-center">
-        <div className="max-w-md w-full space-y-6 bg-white border border-slate-100 p-8 rounded-2xl shadow-lg text-center">
-          <div className="mx-auto w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center border border-red-100 text-red-600 shadow-sm">
-            <ShieldAlert className="w-10 h-10" />
-          </div>
-          <div className="space-y-2">
-            <h1 className="text-xl font-extrabold text-red-600 tracking-tight font-display">
-              Acesso Não Autorizado
-            </h1>
-            <p className="text-xs text-slate-500 font-bold">A conta <strong className="text-slate-800">{user.email}</strong> não está cadastrada na lista de permissões.</p>
-          </div>
-          
-          <div className="bg-slate-50 p-4 rounded-xl text-xs text-slate-600 leading-relaxed font-semibold">
-            Solicite a liberação deste e-mail ao administrador para que você possa acessar o simulador de provas, cronogramas e mentor de estudos.
-          </div>
-
-          <div className="flex flex-col gap-2 pt-2">
-            <button
-              onClick={handleGoogleSignIn}
-              className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold border border-slate-200 rounded-xl text-xs transition-all cursor-pointer"
-            >
-              <span>Alternar Conta Google</span>
-            </button>
-            <button
-              onClick={handleSignOut}
-              className="w-full flex items-center justify-center gap-2 py-2.5 bg-brand-navy hover:bg-brand-navy/90 text-white font-bold rounded-xl text-xs transition-all cursor-pointer"
-            >
-              <LogOut className="h-4 w-4" />
-              <span>Sair da Conta</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <LoginForm handleEmailSignIn={handleEmailSignIn} authError={authError} />;
   }
 
   if (isLoading) {

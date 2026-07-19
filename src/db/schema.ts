@@ -76,5 +76,14 @@ export const mistakeRecords = pgTable("mistake_records", {
   explanation: text("explanation").notNull(),
   createdAt: text("created_at").notNull(),
   resolved: boolean("resolved").notNull().default(false),
-  reviewCount: integer("review_count").notNull().default(0),
+  review_count: integer("review_count").notNull().default(0),
 });
+
+// Table: authorized_users
+export const authorizedUsers = pgTable("authorized_users", {
+  email: text("email").primaryKey(),
+  role: text("role").notNull().default("user"), // 'admin' | 'user'
+  addedBy: text("added_by").notNull().default("System"),
+  createdAt: text("created_at").notNull(),
+});
+

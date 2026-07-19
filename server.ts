@@ -21,6 +21,10 @@ import {
   createMistakeRecord,
   updateMistakeRecord,
   deleteMistakeRecord,
+  getAuthorizedUsers,
+  createAuthorizedUser,
+  deleteAuthorizedUser,
+  checkUserAuthorization,
 } from "./src/db/supabaseService.ts";
 
 dotenv.config();
@@ -227,6 +231,60 @@ app.delete("/api/mistakes/:id", async (req, res) => {
   } catch (error) {
     console.error("Failed to delete mistake:", error);
     res.status(500).json({ error: "Failed to delete mistake" });
+  }
+});
+
+// Authorized Users Management Endpoints
+app.get("/api/users", async (req, res) => {
+  try {
+    const data = await getAuthorizedUsers();
+    res.json(data);
+  } catch (error) {
+    console.error("Failed to fetch authorized users:", error);
+    res.status(500).json({ error: "Failed to fetch authorized users" });
+  }
+});
+
+app.post("/api/users", async (req, res) => {
+  try {
+    const { email, role, addedBy } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+    const data = await createAuthorizedUser(email, role || "user", addedBy || "System");
+    res.json(data);
+  } catch (error) {
+    console.error("Failed to add authorized user:", error);
+    res.status(500).json({ error: "Failed to add authorized user" });
+  }
+});
+
+app.delete("/api/users/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+    await deleteAuthorizedUser(email);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Failed to delete authorized user:", error);
+    res.status(500).json({ error: "Failed to delete authorized user" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+    const result = await checkUserAuthorization(email);
+    if (result.authorized) {
+      res.json({ authorized: true, user: { email: email.trim().toLowerCase(), role: result.role || "user" } });
+    } else {
+      res.json({ authorized: false });
+    }
+  } catch (error) {
+    console.error("Failed to authenticate email:", error);
+    res.status(500).json({ error: "Failed to authenticate" });
   }
 });
 
