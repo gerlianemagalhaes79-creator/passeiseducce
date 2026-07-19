@@ -3,6 +3,25 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import {
+  initAndSeedSupabase,
+  checkSupabaseStatus,
+  getCandidateSettings,
+  updateCandidateSettings,
+  getContentTopics,
+  createContentTopic,
+  updateContentTopic,
+  deleteContentTopic,
+  getStudyActivities,
+  createStudyActivity,
+  updateStudyActivity,
+  deleteStudyActivity,
+  getQuestions,
+  getMistakeRecords,
+  createMistakeRecord,
+  updateMistakeRecord,
+  deleteMistakeRecord,
+} from "./src/db/supabaseService.ts";
 
 dotenv.config();
 
@@ -30,9 +49,185 @@ if (apiKey) {
 
 // API Routes
 
-// Health check
+// Health check and Supabase status combined
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", aiEnabled: !!ai });
+  res.json({ 
+    status: "ok", 
+    aiEnabled: !!ai,
+    supabase: checkSupabaseStatus()
+  });
+});
+
+app.get("/api/supabase-status", (req, res) => {
+  res.json(checkSupabaseStatus());
+});
+
+// Candidate Settings Endpoints
+app.get("/api/settings", async (req, res) => {
+  try {
+    const data = await getCandidateSettings();
+    return res.json(data);
+  } catch (error) {
+    console.error("Failed to fetch settings:", error);
+    res.status(500).json({ error: "Failed to fetch candidate settings" });
+  }
+});
+
+app.put("/api/settings", async (req, res) => {
+  try {
+    const updates = req.body;
+    const data = await updateCandidateSettings(updates);
+    return res.json(data);
+  } catch (error) {
+    console.error("Failed to update settings:", error);
+    res.status(500).json({ error: "Failed to update candidate settings" });
+  }
+});
+
+// Content Topics Endpoints
+app.get("/api/topics", async (req, res) => {
+  try {
+    const data = await getContentTopics();
+    return res.json(data);
+  } catch (error) {
+    console.error("Failed to fetch topics:", error);
+    res.status(500).json({ error: "Failed to fetch topics" });
+  }
+});
+
+app.post("/api/topics", async (req, res) => {
+  try {
+    const newTopic = req.body;
+    const data = await createContentTopic(newTopic);
+    res.json(data);
+  } catch (error) {
+    console.error("Failed to create topic:", error);
+    res.status(500).json({ error: "Failed to create topic" });
+  }
+});
+
+app.put("/api/topics/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    const data = await updateContentTopic(id, updates);
+    return res.json(data);
+  } catch (error) {
+    console.error("Failed to update topic:", error);
+    res.status(500).json({ error: "Failed to update topic" });
+  }
+});
+
+app.delete("/api/topics/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await deleteContentTopic(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Failed to delete topic:", error);
+    res.status(500).json({ error: "Failed to delete topic" });
+  }
+});
+
+// Study Activities Endpoints
+app.get("/api/activities", async (req, res) => {
+  try {
+    const data = await getStudyActivities();
+    return res.json(data);
+  } catch (error) {
+    console.error("Failed to fetch activities:", error);
+    res.status(500).json({ error: "Failed to fetch activities" });
+  }
+});
+
+app.post("/api/activities", async (req, res) => {
+  try {
+    const newAct = req.body;
+    const data = await createStudyActivity(newAct);
+    res.json(data);
+  } catch (error) {
+    console.error("Failed to create activity:", error);
+    res.status(500).json({ error: "Failed to create activity" });
+  }
+});
+
+app.put("/api/activities/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    const data = await updateStudyActivity(id, updates);
+    res.json(data);
+  } catch (error) {
+    console.error("Failed to update activity:", error);
+    res.status(500).json({ error: "Failed to update activity" });
+  }
+});
+
+app.delete("/api/activities/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await deleteStudyActivity(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Failed to delete activity:", error);
+    res.status(500).json({ error: "Failed to delete activity" });
+  }
+});
+
+// Questions Endpoints
+app.get("/api/questions", async (req, res) => {
+  try {
+    const data = await getQuestions();
+    return res.json(data);
+  } catch (error) {
+    console.error("Failed to fetch questions:", error);
+    res.status(500).json({ error: "Failed to fetch questions" });
+  }
+});
+
+// Mistake Records Endpoints
+app.get("/api/mistakes", async (req, res) => {
+  try {
+    const data = await getMistakeRecords();
+    return res.json(data);
+  } catch (error) {
+    console.error("Failed to fetch mistakes:", error);
+    res.status(500).json({ error: "Failed to fetch mistakes" });
+  }
+});
+
+app.post("/api/mistakes", async (req, res) => {
+  try {
+    const newMistake = req.body;
+    const data = await createMistakeRecord(newMistake);
+    res.json(newMistake);
+  } catch (error) {
+    console.error("Failed to create mistake:", error);
+    res.status(500).json({ error: "Failed to create mistake" });
+  }
+});
+
+app.put("/api/mistakes/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    const data = await updateMistakeRecord(id, updates);
+    res.json(data);
+  } catch (error) {
+    console.error("Failed to update mistake:", error);
+    res.status(500).json({ error: "Failed to update mistake" });
+  }
+});
+
+app.delete("/api/mistakes/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await deleteMistakeRecord(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Failed to delete mistake:", error);
+    res.status(500).json({ error: "Failed to delete mistake" });
+  }
 });
 
 // Mentor Chat route with Gemini
@@ -59,7 +254,6 @@ app.post("/api/mentor", async (req, res) => {
   } = candidateState || {};
 
   if (!ai) {
-    // Elegant simulation mode when Gemini API Key is missing
     let responseText = `### Professor Mentor (Modo Simulação)\n\nOlá! Analisei seu estado atual de estudos para a **SEDUC-CE** (Especialidade: **${specialty}**).\n\nComo a chave do Gemini não está configurada localmente, estruturei uma orientação padrão com base no seu progresso real:\n\n* **Progresso do Edital:** Você cobriu **${completedCount}** de **${totalCount}** tópicos do mapa estratégico de preparação.\n* **Desempenho em Questões:** Resolveu **${totalQuestions}** questões com **${correctQuestions}** acertos (taxa de acerto de ${totalQuestions > 0 ? Math.round((correctQuestions / totalQuestions) * 100) : 0}%).\n`;
 
     if (atrasados.length > 0) {
@@ -123,6 +317,9 @@ DIRETRIZES DE RESPOSTA:
 
 // Setup Vite or Static File Serving
 async function setupServer() {
+  // First seed database
+  await initAndSeedSupabase();
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -145,3 +342,4 @@ async function setupServer() {
 setupServer().catch((err) => {
   console.error("Failed to start server:", err);
 });
+

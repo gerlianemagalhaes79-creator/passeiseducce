@@ -13,8 +13,6 @@ import {
   BookMarked,
   User
 } from "lucide-react";
-import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from "firebase/firestore";
-import { db, seedFirestoreIfEmpty, handleFirestoreError, OperationType } from "./lib/firebase";
 import { ContentTopic, StudyActivity, Question, CandidateSettings, MistakeRecord } from "./types";
 import { generateFull74DaySchedule } from "./lib/calendarGenerator";
 import { getCompleteSyllabusSubjects } from "./data/completeSyllabus";
@@ -31,6 +29,9 @@ import IdentificationTab from "./components/IdentificationTab";
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>("dashboard");
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [supabaseStatus, setSupabaseStatus] = useState<{ enabled: boolean; tablesMissing: boolean; setupSql: string } | null>(null);
+  const [showSqlSetup, setShowSqlSetup] = useState<boolean>(false);
+  const [copiedSql, setCopiedSql] = useState<boolean>(false);
 
   // Core Educational States
   const [topics, setTopics] = useState<ContentTopic[]>([]);
@@ -47,7 +48,7 @@ export default function App() {
     createdAt: new Date().toISOString()
   });
 
-  // Dynamically merge 100% of the syllabus subjects (basic + chosen specialty) with Firestore state
+  // Dynamically merge 100% of the syllabus subjects (basic + chosen specialty) with database state
   const mergedTopics = useMemo(() => {
     const syllabusSubjects = getCompleteSyllabusSubjects(settings.specialty || "Biologia");
     const list: ContentTopic[] = [];
@@ -95,92 +96,40 @@ export default function App() {
     return list;
   }, [topics, settings.specialty]);
 
-  // Initialize and Seed Firestore, then bind real-time listeners
+  // Initialize from REST API
   useEffect(() => {
     const initializeData = async () => {
       try {
         setIsLoading(true);
-        // Seed database if empty
-        await seedFirestoreIfEmpty();
+        const [settingsRes, topicsRes, activitiesRes, questionsRes, mistakesRes, statusRes] = await Promise.all([
+          fetch("/api/settings").then(r => r.json()),
+          fetch("/api/topics").then(r => r.json()),
+          fetch("/api/activities").then(r => r.json()),
+          fetch("/api/questions").then(r => r.json()),
+          fetch("/api/mistakes").then(r => r.json()),
+          fetch("/api/supabase-status").then(r => r.json()).catch(() => null),
+        ]);
 
-        // 1. Listen for Strategic Content Topics
-        const topicsUnsubscribe = onSnapshot(collection(db, "content_topics"), (snapshot) => {
-          const list: ContentTopic[] = [];
-          snapshot.forEach((doc) => {
-            list.push({ id: doc.id, ...doc.data() } as ContentTopic);
-          });
-          // Sort topics by priority / weight
-          list.sort((a, b) => b.importanceScore - a.importanceScore);
-          setTopics(list);
-          setIsLoading(false);
-        }, (error) => {
-          console.error("Erro ao escutar tópicos:", error);
-          setIsLoading(false);
-          handleFirestoreError(error, OperationType.LIST, "content_topics");
-        });
+        setSettings(settingsRes);
+        // Sort topics by priority/weight
+        const sortedTopics = [...topicsRes].sort((a, b) => b.importanceScore - a.importanceScore);
+        setTopics(sortedTopics);
+        setActivities(activitiesRes);
+        setQuestions(questionsRes);
+        // Sort mistakes by newest
+        const sortedMistakes = [...mistakesRes].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setMistakes(sortedMistakes);
 
-        // 2. Listen for Study Activities (Calendar)
-        const activitiesUnsubscribe = onSnapshot(collection(db, "study_activities"), (snapshot) => {
-          const list: StudyActivity[] = [];
-          snapshot.forEach((doc) => {
-            list.push({ id: doc.id, ...doc.data() } as StudyActivity);
-          });
-          setActivities(list);
-        }, (error) => {
-          console.error("Erro ao escutar calendário:", error);
-          handleFirestoreError(error, OperationType.LIST, "study_activities");
-        });
+        if (statusRes) {
+          setSupabaseStatus(statusRes);
+        }
 
-        // 3. Listen for Seeded Questions
-        const questionsUnsubscribe = onSnapshot(collection(db, "questions"), (snapshot) => {
-          const list: Question[] = [];
-          snapshot.forEach((doc) => {
-            list.push({ id: doc.id, ...doc.data() } as Question);
-          });
-          setQuestions(list);
-        }, (error) => {
-          console.error("Erro ao escutar simulador:", error);
-          handleFirestoreError(error, OperationType.LIST, "questions");
-        });
-
-        // 4. Listen for Mistake Records (Caderno de Erros)
-        const mistakesUnsubscribe = onSnapshot(collection(db, "mistake_records"), (snapshot) => {
-          const list: MistakeRecord[] = [];
-          snapshot.forEach((doc) => {
-            list.push({ id: doc.id, ...doc.data() } as MistakeRecord);
-          });
-          // Sort by newest
-          list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-          setMistakes(list);
-        }, (error) => {
-          console.error("Erro ao escutar caderno de erros:", error);
-          handleFirestoreError(error, OperationType.LIST, "mistake_records");
-        });
-
-        // 5. Listen for Candidate Settings
-        const settingsUnsubscribe = onSnapshot(collection(db, "candidate_settings"), (snapshot) => {
-          if (!snapshot.empty) {
-            const firstDoc = snapshot.docs[0];
-            const data = firstDoc.data() as CandidateSettings;
-            setSettings({ id: firstDoc.id, ...data } as CandidateSettings);
-            if (!data.candidateName) {
-              setActiveTab("identification");
-            }
-          }
-        }, (error) => {
-          console.error("Erro ao escutar configurações do candidato:", error);
-          handleFirestoreError(error, OperationType.LIST, "candidate_settings");
-        });
-
-        return () => {
-          topicsUnsubscribe();
-          activitiesUnsubscribe();
-          questionsUnsubscribe();
-          mistakesUnsubscribe();
-          settingsUnsubscribe();
-        };
+        if (!settingsRes.candidateName) {
+          setActiveTab("identification");
+        }
       } catch (err) {
         console.error("Erro geral na inicialização:", err);
+      } finally {
         setIsLoading(false);
       }
     };
@@ -188,119 +137,137 @@ export default function App() {
     initializeData();
   }, []);
 
-  // Handlers for Firestore operations
-
   // Content Mapping operations
   const handleAddTopic = async (newTopic: Omit<ContentTopic, "id" | "createdAt">) => {
     const randomId = "topic-custom-" + Math.random().toString(36).substring(2, 9);
-    const docRef = doc(db, "content_topics", randomId);
     try {
       const fullData = {
         id: randomId,
         ...newTopic,
         createdAt: new Date().toISOString()
       };
-      const cleanData = Object.fromEntries(
-        Object.entries(fullData).filter(([_, v]) => v !== undefined)
-      );
-      await setDoc(docRef, cleanData);
+      const res = await fetch("/api/topics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fullData)
+      });
+      const saved = await res.json();
+      setTopics(prev => [...prev, saved]);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `content_topics/${randomId}`);
+      console.error("Erro ao salvar tópico:", error);
     }
   };
 
   const handleUpdateTopic = async (id: string, updates: Partial<ContentTopic>) => {
-    const docRef = doc(db, "content_topics", id);
     try {
-      // Find default fields from our merged list in case the document doesn't exist yet in Firestore
       const existingTopic = mergedTopics.find(t => t.id === id);
       const fullTopicData = existingTopic ? { ...existingTopic, ...updates } : updates;
-      
-      const cleanData = Object.fromEntries(
-        Object.entries(fullTopicData).filter(([_, v]) => v !== undefined)
-      );
-      await setDoc(docRef, cleanData, { merge: true });
+
+      const res = await fetch(`/api/topics/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fullTopicData)
+      });
+      const saved = await res.json();
+      setTopics(prev => prev.map(t => t.id === id ? saved : t));
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `content_topics/${id}`);
+      console.error("Erro ao atualizar tópico:", error);
     }
   };
 
   const handleDeleteTopic = async (id: string) => {
-    const docRef = doc(db, "content_topics", id);
     try {
-      await deleteDoc(docRef);
+      await fetch(`/api/topics/${id}`, { method: "DELETE" });
+      setTopics(prev => prev.filter(t => t.id !== id));
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `content_topics/${id}`);
+      console.error("Erro ao deletar tópico:", error);
     }
   };
 
   // Study Activities / Calendário operations
   const handleAddActivity = async (newAct: Omit<StudyActivity, "id" | "createdAt">) => {
     const randomId = "act-" + Math.random().toString(36).substring(2, 9);
-    const docRef = doc(db, "study_activities", randomId);
     try {
       const fullData = {
         id: randomId,
         ...newAct,
         createdAt: new Date().toISOString()
       };
-      const cleanData = Object.fromEntries(
-        Object.entries(fullData).filter(([_, v]) => v !== undefined)
-      );
-      await setDoc(docRef, cleanData);
+      const res = await fetch("/api/activities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fullData)
+      });
+      const saved = await res.json();
+      setActivities(prev => [...prev, saved]);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `study_activities/${randomId}`);
+      console.error("Erro ao criar atividade:", error);
     }
   };
 
   const handleUpdateActivity = async (id: string, updates: Partial<StudyActivity>) => {
-    const docRef = doc(db, "study_activities", id);
     try {
-      const cleanUpdates = Object.fromEntries(
-        Object.entries(updates).filter(([_, v]) => v !== undefined)
-      );
-      await updateDoc(docRef, cleanUpdates);
+      const res = await fetch(`/api/activities/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates)
+      });
+      const saved = await res.json();
+      setActivities(prev => prev.map(act => act.id === id ? saved : act));
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `study_activities/${id}`);
+      console.error("Erro ao atualizar atividade:", error);
     }
   };
 
   const handleDeleteActivity = async (id: string) => {
-    const docRef = doc(db, "study_activities", id);
     try {
-      await deleteDoc(docRef);
+      await fetch(`/api/activities/${id}`, { method: "DELETE" });
+      setActivities(prev => prev.filter(act => act.id !== id));
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `study_activities/${id}`);
+      console.error("Erro ao deletar atividade:", error);
     }
   };
 
   // Global settings update
   const handleUpdateSettings = async (updates: Partial<CandidateSettings>) => {
-    const docRef = doc(db, "candidate_settings", settings.id);
     try {
-      const cleanUpdates = Object.fromEntries(
-        Object.entries(updates).filter(([_, v]) => v !== undefined)
-      );
-      await updateDoc(docRef, cleanUpdates);
-      // Update local state directly to ensure downstream generators get it immediately
-      setSettings(prev => ({ ...prev, ...updates }));
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates)
+      });
+      const saved = await res.json();
+      setSettings(saved);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `candidate_settings/${settings.id}`);
+      console.error("Erro ao atualizar configurações:", error);
     }
   };
 
   const handleRebuildSchedule = async (startDate: string, updatedSettings?: CandidateSettings) => {
     try {
       const activeSettings = updatedSettings || settings;
-      // 1. Clear all current activities
-      for (const act of activities) {
-        await handleDeleteActivity(act.id);
-      }
+      // 1. Clear all current activities on server and locally
+      await Promise.all(activities.map(act => fetch(`/api/activities/${act.id}`, { method: "DELETE" })));
+      
       // 2. Generate strategic 74-day activities
-      const newActivities = generateFull74DaySchedule(startDate, activeSettings);
+      const newActivities = generateFull74DaySchedule(startDate, activeSettings, topics);
+      const savedActivities: StudyActivity[] = [];
       for (const act of newActivities) {
-        await handleAddActivity(act);
+        const randomId = "act-" + Math.random().toString(36).substring(2, 9);
+        const fullData = {
+          id: randomId,
+          ...act,
+          createdAt: new Date().toISOString()
+        };
+        const res = await fetch("/api/activities", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(fullData)
+        });
+        const saved = await res.json();
+        savedActivities.push(saved);
       }
+      setActivities(savedActivities);
     } catch (err) {
       console.error("Erro ao reconstruir cronograma:", err);
     }
@@ -308,7 +275,7 @@ export default function App() {
 
   // Feed topic state when question solved in simulator
   const handleSolveQuestion = async (topicId: string, isCorrect: boolean) => {
-    const topic = topics.find(t => t.id === topicId);
+    const topic = mergedTopics.find(t => t.id === topicId);
     if (!topic) return;
 
     const totalSolved = (topic.totalQuestionsSolved || 0) + 1;
@@ -323,7 +290,6 @@ export default function App() {
   // Record a mistake in Caderno de Erros
   const handleRecordMistake = async (question: Question, selectedIndex: number) => {
     const randomId = "mistake-" + Math.random().toString(36).substring(2, 9);
-    const docRef = doc(db, "mistake_records", randomId);
     try {
       const newMistake: MistakeRecord = {
         id: randomId,
@@ -340,30 +306,38 @@ export default function App() {
         resolved: false,
         reviewCount: 0
       };
-      const cleanMistake = Object.fromEntries(
-        Object.entries(newMistake).filter(([_, v]) => v !== undefined)
-      );
-      await setDoc(docRef, cleanMistake);
+      const res = await fetch("/api/mistakes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newMistake)
+      });
+      const saved = await res.json();
+      setMistakes(prev => [saved, ...prev]);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `mistake_records/${randomId}`);
+      console.error("Erro ao registrar erro:", error);
     }
   };
 
   const handleResolveMistake = async (id: string, resolved: boolean) => {
-    const docRef = doc(db, "mistake_records", id);
     try {
-      await updateDoc(docRef, { resolved });
+      const res = await fetch(`/api/mistakes/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resolved })
+      });
+      const saved = await res.json();
+      setMistakes(prev => prev.map(m => m.id === id ? saved : m));
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `mistake_records/${id}`);
+      console.error("Erro ao resolver erro:", error);
     }
   };
 
   const handleDeleteMistake = async (id: string) => {
-    const docRef = doc(db, "mistake_records", id);
     try {
-      await deleteDoc(docRef);
+      await fetch(`/api/mistakes/${id}`, { method: "DELETE" });
+      setMistakes(prev => prev.filter(m => m.id !== id));
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `mistake_records/${id}`);
+      console.error("Erro ao deletar erro:", error);
     }
   };
 
@@ -531,10 +505,29 @@ export default function App() {
             <span className="text-[11px] font-bold text-brand-green tracking-wide">Foco: Banca FUNECE/UECE</span>
           </div>
           <div className="hidden sm:flex gap-4">
-            <div className="flex items-center gap-1.5 bg-brand-light-navy px-3 py-1.5 rounded-lg border border-brand-navy/5 text-[11px] font-bold text-slate-500">
-              <Database className="h-3.5 w-3.5 text-brand-green" />
-              <span>Sincronização Ativa</span>
-            </div>
+            {supabaseStatus ? (
+              supabaseStatus.enabled ? (
+                <div className="flex items-center gap-1.5 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 text-[11px] font-bold text-emerald-700">
+                  <Database className="h-3.5 w-3.5 text-emerald-500" />
+                  <span>Supabase Sincronizado</span>
+                </div>
+              ) : supabaseStatus.tablesMissing ? (
+                <div className="flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200 text-[11px] font-bold text-amber-700 animate-pulse">
+                  <Database className="h-3.5 w-3.5 text-amber-500" />
+                  <span>Tabelas Supabase Ausentes</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 bg-brand-light-navy px-3 py-1.5 rounded-lg border border-brand-navy/5 text-[11px] font-bold text-slate-500">
+                  <Database className="h-3.5 w-3.5 text-brand-green" />
+                  <span>Sincronização Local</span>
+                </div>
+              )
+            ) : (
+              <div className="flex items-center gap-1.5 bg-brand-light-navy px-3 py-1.5 rounded-lg border border-brand-navy/5 text-[11px] font-bold text-slate-500">
+                <Database className="h-3.5 w-3.5 text-brand-green" />
+                <span>Sincronização Local</span>
+              </div>
+            )}
           </div>
         </div>
       </nav>
@@ -674,7 +667,58 @@ export default function App() {
         </aside>
 
         {/* Dynamic Screen View */}
-        <main className="flex-1 min-w-0">
+        <main className="flex-1 min-w-0 space-y-4">
+          {supabaseStatus && supabaseStatus.tablesMissing && (
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-2xl p-5 shadow-sm space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-amber-100 rounded-xl text-amber-700 shrink-0">
+                  <Database className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Conexão Supabase Detectada — Tabelas Ausentes</h3>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    Seu projeto do Supabase foi configurado com sucesso! No entanto, as tabelas necessárias ainda não foram criadas no banco de dados. 
+                    Por segurança e robustez, a plataforma está salvando seu progresso em um banco local temporário para você não perder dados.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-wrap gap-3">
+                <button
+                  onClick={() => setShowSqlSetup(!showSqlSetup)}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer"
+                >
+                  {showSqlSetup ? "Ocultar Instruções SQL" : "Visualizar Instruções e SQL"}
+                </button>
+                
+                <button
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(supabaseStatus.setupSql);
+                      setCopiedSql(true);
+                      setTimeout(() => setCopiedSql(false), 3000);
+                    } catch (err) {
+                      console.error("Falha ao copiar:", err);
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer"
+                >
+                  {copiedSql ? "✓ Copiado!" : "Copiar Script SQL"}
+                </button>
+              </div>
+
+              {showSqlSetup && (
+                <div className="bg-slate-900 text-slate-100 rounded-xl p-4 mt-3 font-mono text-[11px] overflow-auto max-h-60 border border-slate-800">
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-800 mb-2">
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Script SQL de Configuração</span>
+                    <span className="text-[10px] text-amber-400">Execute no SQL Editor do Supabase</span>
+                  </div>
+                  <pre className="whitespace-pre-wrap">{supabaseStatus.setupSql}</pre>
+                </div>
+              )}
+            </div>
+          )}
+
           {renderActiveTab()}
         </main>
       </div>

@@ -1,4 +1,4 @@
-import { StudyActivity, CandidateSettings } from "../types";
+import { StudyActivity, CandidateSettings, ContentTopic } from "../types";
 import { CONTENT_HIERARCHY } from "../components/questionsBank";
 
 // High-fidelity microcontents from SEDUC-CE syllabus mapped as actionable daily contents
@@ -275,98 +275,170 @@ export const strategic74DayTemplate: DayTemplate[] = [
   { subjects: ["CONCURSO"], topicsMapKey: [], isConcurso: true, customTime: "08:00 - 13:00" }
 ];
 
-export function generateFull74DaySchedule(startDateStr: string, settings: CandidateSettings): Omit<StudyActivity, "id" | "createdAt">[] {
+export function generateFull74DaySchedule(
+  startDateStr: string, 
+  settings: CandidateSettings,
+  topics: ContentTopic[]
+): Omit<StudyActivity, "id" | "createdAt">[] {
   const result: Omit<StudyActivity, "id" | "createdAt">[] = [];
   const start = new Date(startDateStr + "T00:00:00");
-  
   const spec = settings.specialty || "Biologia";
   
-  // Create state pools to rotate content without repetitive items
-  const pools: Record<string, string[]> = {
-    "Língua Portuguesa": [...SEDUC_CE_MICRO_SYLLABUS["Língua Portuguesa"]],
-    "Didática": [...SEDUC_CE_MICRO_SYLLABUS["Didática"]],
-    "Indicadores": [...SEDUC_CE_MICRO_SYLLABUS["Indicadores"]],
-    "Legislação": [...SEDUC_CE_MICRO_SYLLABUS["Legislação"]],
-    "Específico": [...getMicroSyllabusForSpecialty(spec)]
+  // 1. Group the real content topics by subject
+  const subjectGroups: Record<string, ContentTopic[]> = {
+    "Língua Portuguesa": [],
+    "Educação Brasileira": [],
+    "Administração Pública": [],
+    "Leitura e Interpretação de Dados e Indicadores": [],
+    "Conhecimentos Específicos": []
   };
 
-  const poolIndices: Record<string, number> = {
+  topics.forEach(t => {
+    const s = t.subject;
+    if (subjectGroups[s]) {
+      subjectGroups[s].push(t);
+    } else {
+      // Fallback/loose mapping
+      if (s.includes("Português") || s.includes("Portuguesa")) {
+        subjectGroups["Língua Portuguesa"].push(t);
+      } else if (s.includes("Educação") || s.includes("Didática") || s.includes("Temas Educacionais")) {
+        subjectGroups["Educação Brasileira"].push(t);
+      } else if (s.includes("Administração") || s.includes("Legislação") || s.includes("Pública")) {
+        subjectGroups["Administração Pública"].push(t);
+      } else if (s.includes("Leitura") || s.includes("Indicadores") || s.includes("Dados")) {
+        subjectGroups["Leitura e Interpretação de Dados e Indicadores"].push(t);
+      } else {
+        subjectGroups["Conhecimentos Específicos"].push(t);
+      }
+    }
+  });
+
+  // 2. Sort each group by axis (block) and then importanceScore (descending)
+  const sortTopicsByBlock = (list: ContentTopic[]) => {
+    return [...list].sort((a, b) => {
+      const numA = parseInt(a.axis?.match(/BLOCO\s+(\d+)/)?.[1] || "99");
+      const numB = parseInt(b.axis?.match(/BLOCO\s+(\d+)/)?.[1] || "99");
+      if (numA !== numB) return numA - numB;
+      return (b.importanceScore || 0) - (a.importanceScore || 0);
+    });
+  };
+
+  const sortedGroups: Record<string, ContentTopic[]> = {
+    "Língua Portuguesa": sortTopicsByBlock(subjectGroups["Língua Portuguesa"]),
+    "Educação Brasileira": sortTopicsByBlock(subjectGroups["Educação Brasileira"]),
+    "Administração Pública": sortTopicsByBlock(subjectGroups["Administração Pública"]),
+    "Leitura e Interpretação de Dados e Indicadores": sortTopicsByBlock(subjectGroups["Leitura e Interpretação de Dados e Indicadores"]),
+    "Conhecimentos Específicos": sortTopicsByBlock(subjectGroups["Conhecimentos Específicos"])
+  };
+
+  // Pointers for each subject's topic rotation
+  const pointers: Record<string, number> = {
     "Língua Portuguesa": 0,
-    "Didática": 0,
-    "Indicadores": 0,
-    "Legislação": 0,
-    "Específico": 0
+    "Educação Brasileira": 0,
+    "Administração Pública": 0,
+    "Leitura e Interpretação de Dados e Indicadores": 0,
+    "Conhecimentos Específicos": 0
   };
 
-  const getNextTopic = (subjKey: 'Língua Portuguesa' | 'Didática' | 'Indicadores' | 'Legislação' | 'Específico'): string => {
-    const list = pools[subjKey];
-    if (!list || list.length === 0) return "Estudo Complementar do Edital";
-    const idx = poolIndices[subjKey] % list.length;
-    poolIndices[subjKey]++;
-    return list[idx];
+  const getNextTopicFromSubject = (subj: string): ContentTopic | null => {
+    const list = sortedGroups[subj];
+    if (!list || list.length === 0) return null;
+    const idx = pointers[subj];
+    pointers[subj] = idx + 1;
+    return list[idx % list.length];
   };
 
   let currentDate = new Date(start);
+
+  const subjectKeys = [
+    "Língua Portuguesa", 
+    "Educação Brasileira", 
+    "Administração Pública", 
+    "Leitura e Interpretação de Dados e Indicadores", 
+    "Conhecimentos Específicos"
+  ];
 
   for (let i = 0; i < strategic74DayTemplate.length; i++) {
     const template = strategic74DayTemplate[i];
     const dateStr = currentDate.toISOString().split('T')[0];
     
-    // Determine subject tag formatting
-    const labels = template.subjects.map(s => {
-      if (s === "PORTUGUÊS") return "Língua Portuguesa (8 questões na última prova)";
-      if (s === "DIDÁTICA") return "Educação Brasileira — Temas Educacionais e Pedagógicos (8 questões na última prova)";
-      if (s === "INDICADORES") return "Leitura e Interpretação de Dados e Indicadores (8 questões na última prova)";
-      if (s === "LEGISLAÇÃO") return "Administração Pública (6 questões na última prova)";
-      if (s === "ESPECÍFICO") return `Conhecimento Específico — ${spec} (50 questões na última prova)`;
-      return s;
-    });
-    let subjectLabel = labels.join(" + ");
-
-    let topicName = "";
-    let notes = "";
-    let durationMinutes = settings.dailyStudyHours * 60;
-    
     if (template.isSimulado) {
-      topicName = template.simuladoName || "";
-      notes = template.simuladoNotes || "";
-      durationMinutes = template.customTime === "09:00 - 12:00" ? 180 : 120;
-    } else if (template.isRevisionFinal) {
-      if (template.revisionName === "Revisão Ativa: Conhecimentos Específicos") {
-        topicName = `Revisão Ativa: Conhecimentos Específicos de ${spec}`;
-      } else {
-        topicName = template.revisionName || "";
-      }
-      notes = template.simuladoNotes || "Revisão integradora do conteúdo estudado focado nas maiores recorrências da banca FUNECE/UECE.";
-      durationMinutes = 120;
-    } else if (template.isConcurso) {
-      topicName = "GRANDE DIA DA SUA APROVAÇÃO! PROVA OFICIAL SEDUC-CE 2026";
-      notes = "Eu assumo o compromisso de seguir este planejamento com determinação, ética e foco. Cada dia concluído me aproxima de vestir o crachá de servidor público do Estado do Ceará e fazer a diferença na educação pública de nossos jovens.";
-      durationMinutes = 300;
-    } else {
-      // Regular multi-topic study day
-      const bulletTopics: string[] = [];
-      template.topicsMapKey.forEach(key => {
-        const item = getNextTopic(key);
-        bulletTopics.push(`• [${key.toUpperCase()}] ${item}`);
+      // Simulado Day
+      result.push({
+        topicId: `simulado-day-${i + 1}`,
+        topicName: template.simuladoName || "Simulado Geral de Sábado",
+        subject: "Simulado Geral FUNECE",
+        type: "exercise",
+        status: "planned",
+        scheduledDate: dateStr,
+        durationMinutes: template.customTime === "09:00 - 12:00" ? 180 : 120,
+        notes: template.simuladoNotes || "Praticar com foco total nas pegadinhas da banca.",
+        theoryDone: false,
+        questionsDone: false,
+        revisionDone: false
       });
-      topicName = bulletTopics.join("\n");
-      notes = `Estudo focado e ativo. Realizar estudo teórico (T), responder questões (Q) e planejar revisão de fixação (R).`;
-    }
+    } else if (template.isRevisionFinal) {
+      // Final Revision Day
+      const rName = template.revisionName === "Revisão Ativa: Conhecimentos Específicos"
+        ? `Revisão Ativa: Conhecimentos Específicos de ${spec}`
+        : (template.revisionName || "Revisão Geral");
 
-    result.push({
-      topicId: template.isConcurso ? "concurso-oficial" : `strat-day-${i + 1}`,
-      topicName,
-      subject: subjectLabel,
-      type: template.isSimulado ? "exercise" : template.isRevisionFinal ? "revision" : "theory",
-      status: "planned",
-      scheduledDate: dateStr,
-      durationMinutes,
-      notes,
-      theoryDone: false,
-      questionsDone: false,
-      revisionDone: false
-    });
+      result.push({
+        topicId: `revision-day-${i + 1}`,
+        topicName: rName,
+        subject: "Revisão de Véspera",
+        type: "revision",
+        status: "planned",
+        scheduledDate: dateStr,
+        durationMinutes: 120,
+        notes: "Revisão integradora do conteúdo estudado focado nas maiores recorrências da banca FUNECE/UECE.",
+        theoryDone: false,
+        questionsDone: false,
+        revisionDone: false
+      });
+    } else if (template.isConcurso) {
+      // Exam Day
+      result.push({
+        topicId: "concurso-oficial",
+        topicName: "GRANDE DIA DA SUA APROVAÇÃO! PROVA OFICIAL SEDUC-CE 2026",
+        subject: "CONCURSO SELEÇÃO",
+        type: "exercise",
+        status: "planned",
+        scheduledDate: dateStr,
+        durationMinutes: 300,
+        notes: "Eu assumo o compromisso de seguir este planejamento com determinação, ética e foco. Cada dia concluído me aproxima de vestir o crachá de servidor público do Estado do Ceará.",
+        theoryDone: false,
+        questionsDone: false,
+        revisionDone: false
+      });
+    } else {
+      // Standard study day - Schedule 4 subtopics from different subjects
+      // We choose 4 subjects by excluding one of them in rotation (i % 5)
+      const excludedIndex = i % 5;
+      const activeSubjectsForDay = subjectKeys.filter((_, idx) => idx !== excludedIndex);
+      
+      const dailyTimeMinutes = settings.dailyStudyHours * 60;
+      const timePerActivity = Math.round(dailyTimeMinutes / activeSubjectsForDay.length);
+
+      activeSubjectsForDay.forEach(subj => {
+        const topic = getNextTopicFromSubject(subj);
+        if (topic) {
+          result.push({
+            topicId: topic.id,
+            topicName: topic.name,
+            subject: topic.subject,
+            type: "theory",
+            status: "planned",
+            scheduledDate: dateStr,
+            durationMinutes: timePerActivity,
+            notes: `[Eixo: ${topic.axis}] Estudo direcionado do microtópico do edital. Carga de relevância: ${topic.relevance} (${topic.importanceScore}%).`,
+            theoryDone: false,
+            questionsDone: false,
+            revisionDone: false
+          });
+        }
+      });
+    }
 
     // Advance 1 day
     currentDate.setDate(currentDate.getDate() + 1);

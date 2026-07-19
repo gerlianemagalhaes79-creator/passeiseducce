@@ -13,7 +13,9 @@ import {
   Sliders,
   CheckCircle2,
   TrendingUp,
-  RefreshCw
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { StudyActivity, ContentTopic, CandidateSettings, EDUCATION_SPECIALTIES } from "../types";
 import { CONTENT_HIERARCHY } from "./questionsBank";
@@ -535,6 +537,68 @@ export default function StudyCalendar({
 
   const todayStr = new Date().toISOString().split('T')[0];
 
+  const [calendarViewMode, setCalendarViewMode] = useState<'calendar' | 'list'>('calendar');
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(todayStr);
+  const [currentMonth, setCurrentMonth] = useState<Date>(() => {
+    if (activities.length > 0) {
+      const sorted = [...activities].sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+      return new Date(sorted[0].scheduledDate + "T00:00:00");
+    }
+    return new Date();
+  });
+
+  const handlePrevMonth = () => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const calendarDays = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+
+    const daysInMonth = lastDay.getDate();
+    const startDayOfWeek = firstDay.getDay();
+
+    const days: Array<{ dateStr: string; isCurrentMonth: boolean; dayNum: number }> = [];
+
+    // Trailing days from previous month
+    const prevMonthLastDay = new Date(year, month, 0).getDate();
+    for (let i = startDayOfWeek - 1; i >= 0; i--) {
+      const d = prevMonthLastDay - i;
+      const prevMonth = month === 0 ? 11 : month - 1;
+      const prevYear = month === 0 ? year - 1 : year;
+      const dateStr = `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({ dateStr, isCurrentMonth: false, dayNum: d });
+    }
+
+    // Days of current month
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({ dateStr, isCurrentMonth: true, dayNum: d });
+    }
+
+    // Remaining slots to complete a full 6-row (42 cells) grid
+    const remaining = 42 - days.length;
+    for (let d = 1; d <= remaining; d++) {
+      const nextMonth = month === 11 ? 0 : month + 1;
+      const nextYear = month === 11 ? year + 1 : year;
+      const dateStr = `${nextYear}-${String(nextMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({ dateStr, isCurrentMonth: false, dayNum: d });
+    }
+
+    return days;
+  }, [currentMonth]);
+
+  const selectedDateActivities = useMemo(() => {
+    return activities.filter(act => act.scheduledDate === selectedCalendarDate);
+  }, [activities, selectedCalendarDate]);
+
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     await onUpdateSettings({
@@ -586,7 +650,7 @@ export default function StudyCalendar({
       }
 
       // 2. Generate strategic 74-day activities using candidate settings
-      const newActivities = generateFull74DaySchedule(genStartDate, settings);
+      const newActivities = generateFull74DaySchedule(genStartDate, settings, topics);
       for (const act of newActivities) {
         await onAddActivity(act);
       }
@@ -975,13 +1039,29 @@ export default function StudyCalendar({
         
         {/* Left Agenda List - Microcontents Study Table */}
         <div className="lg:col-span-9 bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-5">
+          {/* Tabs for Calendar vs List */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <CalendarCheck className="h-5 w-5 text-brand-navy" />
-              <div>
-                <h3 className="text-xs font-extrabold text-brand-navy font-display uppercase tracking-wider font-sans">Planejamento Semanal por Microconteúdos</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5 font-sans">Acompanhamento e Progresso Diário</p>
-              </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCalendarViewMode('calendar')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                  calendarViewMode === 'calendar'
+                    ? "bg-brand-navy text-white border-brand-navy shadow-sm"
+                    : "bg-white text-slate-600 border-slate-100 hover:bg-slate-50"
+                }`}
+              >
+                <CalendarIcon className="h-3.5 w-3.5" /> Calendário Mensal
+              </button>
+              <button
+                onClick={() => setCalendarViewMode('list')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                  calendarViewMode === 'list'
+                    ? "bg-brand-navy text-white border-brand-navy shadow-sm"
+                    : "bg-white text-slate-600 border-slate-100 hover:bg-slate-50"
+                }`}
+              >
+                <CalendarCheck className="h-3.5 w-3.5" /> Lista Cronológica ({sortedActivities.length})
+              </button>
             </div>
             <div className="flex gap-2">
               <button
@@ -991,8 +1071,11 @@ export default function StudyCalendar({
                 <Printer className="h-3.5 w-3.5" /> Imprimir Cronograma
               </button>
               <button
-                onClick={() => setIsAddingActivity(true)}
-                className="flex items-center gap-1 px-4 py-2 bg-brand-navy hover:bg-brand-navy/95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs font-sans"
+                onClick={() => {
+                  setScheduledDate(selectedCalendarDate);
+                  setIsAddingActivity(true);
+                }}
+                className="flex items-center gap-1 px-4 py-2 bg-brand-green hover:bg-brand-green/95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs font-sans"
               >
                 <Plus className="h-3.5 w-3.5" /> Agendar Ciclo Manual
               </button>
@@ -1007,7 +1090,7 @@ export default function StudyCalendar({
                 <button
                   type="button"
                   onClick={() => setIsAddingActivity(false)}
-                  className="text-[10px] font-bold text-slate-400 hover:text-slate-600"
+                  className="text-[10px] font-bold text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
                   Fechar
                 </button>
@@ -1022,7 +1105,7 @@ export default function StudyCalendar({
                     onChange={(e) => setSelectedTopicId(e.target.value)}
                   >
                     {topics.map(t => (
-                      <option key={t.id} value={t.id}>[{t.subject.substring(0, 10)}...] {t.name}</option>
+                      <option key={t.id} value={t.id}>[{t.subject.substring(0, 15)}...] {t.name}</option>
                     ))}
                   </select>
                 </div>
@@ -1086,188 +1169,428 @@ export default function StudyCalendar({
             </form>
           )}
 
-          {/* Schedule Table Layout */}
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px] border-collapse text-left text-xs font-medium">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[12%] font-sans">Data</th>
-                  <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[13%] font-sans">Dia</th>
-                  <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[22%] font-sans">Área / Disciplina</th>
-                  <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[35%] font-sans">Conteúdo Programático Detalhado</th>
-                  <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[10%] font-sans">Horário</th>
-                  <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[12%] font-sans text-center">Progresso</th>
-                  <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[6%] font-sans text-center"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {sortedActivities.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-12 text-slate-400 text-xs font-semibold font-sans">
-                      <div className="flex flex-col items-center gap-2">
-                        <AlertTriangle className="h-6 w-6 text-slate-300" />
-                        <span>Nenhum cronograma de estudos gerado. Utilize o "Gerador Inteligente" acima!</span>
-                      </div>
-                    </td>
-                  </tr>
+          {calendarViewMode === 'calendar' ? (
+            <div className="space-y-6">
+              {/* Month Navigation Header */}
+              <div className="flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <div>
+                  <h4 className="text-xs font-extrabold text-brand-navy uppercase tracking-wider font-sans">
+                    Navegação por Mês de Estudos
+                  </h4>
+                  <p className="text-[14px] font-extrabold text-brand-green uppercase tracking-wide mt-1">
+                    {currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={handlePrevMonth}
+                    className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 cursor-pointer"
+                    title="Mês Anterior"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={handleNextMonth}
+                    className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 cursor-pointer"
+                    title="Próximo Mês"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Calendar Grid */}
+              <div className="grid grid-cols-7 gap-2 bg-slate-50/30 p-4 rounded-2xl border border-slate-100">
+                {/* Weekdays */}
+                {["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"].map(day => (
+                  <div key={day} className="text-center text-[10px] font-extrabold text-slate-400 py-1.5 uppercase tracking-wider font-sans">
+                    {day}
+                  </div>
+                ))}
+
+                {/* Days */}
+                {calendarDays.map(({ dateStr, isCurrentMonth, dayNum }) => {
+                  const dayActs = activities.filter(act => act.scheduledDate === dateStr);
+                  const isSelected = dateStr === selectedCalendarDate;
+                  const isToday = dateStr === todayStr;
+                  const hasActs = dayActs.length > 0;
+                  
+                  let bgClass = "bg-white hover:bg-slate-50 text-slate-700";
+                  let borderClass = "border-slate-100";
+                  let textClass = isCurrentMonth ? "text-slate-800 font-bold" : "text-slate-300 font-medium";
+
+                  if (hasActs) {
+                    const completedCount = dayActs.filter(act => act.status === 'completed').length;
+                    const isFullyCompleted = completedCount === dayActs.length;
+                    const someStarted = dayActs.some(act => act.theoryDone || act.questionsDone || act.revisionDone);
+
+                    if (isFullyCompleted) {
+                      bgClass = "bg-emerald-50 hover:bg-emerald-100/70 text-emerald-800";
+                      borderClass = "border-emerald-100";
+                      textClass = "text-emerald-800 font-extrabold";
+                    } else if (someStarted) {
+                      bgClass = "bg-blue-50/50 hover:bg-blue-50 text-blue-800";
+                      borderClass = "border-blue-100";
+                      textClass = "text-blue-800 font-extrabold";
+                    } else {
+                      bgClass = "bg-brand-light-navy/35 hover:bg-brand-light-navy/50 text-brand-navy";
+                      borderClass = "border-brand-navy/10";
+                      textClass = "text-brand-navy font-extrabold";
+                    }
+                  }
+
+                  if (isSelected) {
+                    borderClass = "border-brand-green border-2 ring-2 ring-brand-green/15";
+                  }
+
+                  return (
+                    <button
+                      key={dateStr}
+                      onClick={() => setSelectedCalendarDate(dateStr)}
+                      className={`relative min-h-[50px] aspect-square p-1.5 border rounded-xl flex flex-col justify-between items-start transition-all cursor-pointer ${bgClass} ${borderClass}`}
+                    >
+                      <span className={`text-[11px] leading-none ${textClass}`}>
+                        {dayNum}
+                      </span>
+
+                      {isToday && (
+                        <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-brand-green rounded-full"></span>
+                      )}
+
+                      {hasActs && (
+                        <div className="w-full flex items-center justify-between mt-auto">
+                          <span className={`text-[8px] font-extrabold leading-none px-1.5 py-0.5 rounded-md ${
+                            dayActs.every(act => act.status === 'completed')
+                              ? "bg-emerald-500 text-white"
+                              : "bg-brand-navy text-white"
+                          }`}>
+                            {dayActs.length} {dayActs.length === 1 ? 'eixo' : 'eixos'}
+                          </span>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Day's Activities Detail Panel */}
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 space-y-4 animate-fade-in font-sans">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/60">
+                  <div className="flex items-center gap-2">
+                    <CalendarIcon className="h-4.5 w-4.5 text-brand-navy" />
+                    <div>
+                      <h4 className="text-xs font-extrabold text-brand-navy uppercase tracking-wider font-display">
+                        Dia selecionado: {new Date(selectedCalendarDate + "T12:00:00").toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', weekday: 'long' })}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Microconteúdos Mapeados do Edital</p>
+                    </div>
+                  </div>
+                  {selectedDateActivities.length > 0 && (
+                    <span className="text-[10px] font-extrabold text-slate-500 bg-white border border-slate-100 px-2.5 py-1 rounded-lg">
+                      {selectedDateActivities.filter(a => a.status === 'completed').length} de {selectedDateActivities.length} concluídos
+                    </span>
+                  )}
+                </div>
+
+                {selectedDateActivities.length === 0 ? (
+                  <div className="py-6 text-center text-slate-400 text-xs font-semibold">
+                    <p>Nenhum conteúdo agendado para este dia.</p>
+                    <button
+                      onClick={() => {
+                        setScheduledDate(selectedCalendarDate);
+                        setIsAddingActivity(true);
+                      }}
+                      className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 bg-brand-navy hover:bg-brand-navy/95 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Agendar Ciclo para este dia
+                    </button>
+                  </div>
                 ) : (
-                  sortedActivities.map((act) => {
-                    const dateObj = new Date(act.scheduledDate + "T00:00:00");
-                    const formattedDate = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-                    const dayOfWeek = dateObj.toLocaleDateString('pt-BR', { weekday: 'long' });
-                    const dayOfWeekCapitalized = dayOfWeek.charAt(0).toUpperCase() + dayOfWeek.slice(1);
+                  <div className="space-y-4">
+                    {selectedDateActivities.map(act => {
+                      const totalProgressCount = (act.theoryDone ? 1 : 0) + (act.questionsDone ? 1 : 0) + (act.revisionDone ? 1 : 0);
+                      const progressPercent = Math.round((totalProgressCount / 3) * 100);
 
-                    const isToday = act.scheduledDate === todayStr;
-                    const isOverdue = act.status === "planned" && act.scheduledDate < todayStr;
-                    const durationHrs = act.durationMinutes ? Math.floor(act.durationMinutes / 60) : settings.dailyStudyHours;
-
-                    const totalProgressCount = (act.theoryDone ? 1 : 0) + (act.questionsDone ? 1 : 0) + (act.revisionDone ? 1 : 0);
-                    const progressPercent = Math.round((totalProgressCount / 3) * 100);
-
-                    return (
-                      <tr 
-                        key={act.id} 
-                        className={`transition-colors font-sans ${
-                          act.status === "completed" 
-                            ? "bg-slate-50/40 text-slate-400" 
-                            : isToday 
-                            ? "bg-emerald-50/30 text-slate-800 font-semibold" 
-                            : isOverdue 
-                            ? "bg-rose-50/10 text-slate-800" 
-                            : "bg-white hover:bg-slate-50/30 text-slate-700"
-                        }`}
-                      >
-                        {/* DATA */}
-                        <td className="py-4 px-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 rounded-md text-[11px] font-bold ${
-                            isToday 
-                              ? "bg-brand-navy text-white" 
-                              : isOverdue 
-                              ? "bg-rose-100 text-rose-700 border border-rose-200" 
-                              : "bg-slate-100 text-slate-700 border border-slate-200/60"
-                          }`}>
-                            {formattedDate}
-                          </span>
-                        </td>
-
-                        {/* DIA DA SEMANA */}
-                        <td className="py-4 px-4 whitespace-nowrap text-[11px] font-bold text-slate-500">
-                          {dayOfWeekCapitalized}
-                          {isToday && (
-                            <span className="block text-[8px] text-brand-green uppercase font-bold tracking-wider animate-pulse mt-0.5">
-                              Hoje
-                            </span>
-                          )}
-                        </td>
-
-                        {/* ÁREA / DISCIPLINA */}
-                        <td className="py-4 px-4">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-extrabold border ${
-                            act.subject.includes("Conhecimentos Específicos")
-                              ? "bg-brand-light-navy text-brand-navy border-brand-navy/10"
-                              : act.subject.includes("Simulado")
-                              ? "bg-brand-light-amber text-brand-navy border-brand-amber/15"
-                              : act.subject.includes("Revisão")
-                              ? "bg-amber-50 text-amber-700 border-amber-200"
-                              : "bg-slate-100 text-slate-600 border-slate-200"
-                          }`}>
-                            {act.subject}
-                          </span>
-                        </td>
-
-                        {/* CONTEÚDO PROGRAMÁTICO DETALHADO */}
-                        <td className="py-4 px-4">
-                          <p className={`font-bold text-[11.5px] leading-tight ${act.status === 'completed' ? 'line-through text-slate-400' : 'text-slate-800'}`}>
-                            {act.topicName}
-                          </p>
-                          {act.notes && (
-                            <p className="text-[10px] text-slate-400 italic font-medium leading-relaxed mt-1">
-                              {act.notes}
-                            </p>
-                          )}
-                        </td>
-
-                        {/* HORÁRIO */}
-                        <td className="py-4 px-4 whitespace-nowrap text-slate-500 font-bold">
-                          <span className="flex items-center gap-1 text-[11px]">
-                            <Clock className="h-3 w-3 text-slate-400" />
-                            {durationHrs}h ({genStudyPeriod.split(' ')[0]})
-                          </span>
-                        </td>
-
-                        {/* PROGRESSO TQR CHECKBOXES */}
-                        <td className="py-4 px-4 whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-2">
-                            {/* T = Teoria */}
-                            <label 
-                              onClick={() => handleToggleTQR(act, 'T')}
-                              className={`w-7 h-7 flex items-center justify-center rounded-lg border text-[10px] font-extrabold cursor-pointer transition-all ${
-                                act.theoryDone 
-                                  ? "bg-emerald-500 border-emerald-600 text-white shadow-xs" 
-                                  : "bg-slate-50 border-slate-200 text-slate-400 hover:border-slate-300"
-                              }`}
-                              title="Teoria Estudada"
-                            >
-                              T
-                            </label>
-
-                            {/* Q = Questões */}
-                            <label 
-                              onClick={() => handleToggleTQR(act, 'Q')}
-                              className={`w-7 h-7 flex items-center justify-center rounded-lg border text-[10px] font-extrabold cursor-pointer transition-all ${
-                                act.questionsDone 
-                                  ? "bg-brand-navy border-brand-navy/60 text-white shadow-xs" 
-                                  : "bg-slate-50 border-slate-200 text-slate-400 hover:border-slate-300"
-                              }`}
-                              title="Questões Resolvidas"
-                            >
-                              Q
-                            </label>
-
-                            {/* R = Revisão */}
-                            <label 
-                              onClick={() => handleToggleTQR(act, 'R')}
-                              className={`w-7 h-7 flex items-center justify-center rounded-lg border text-[10px] font-extrabold cursor-pointer transition-all ${
-                                act.revisionDone 
-                                  ? "bg-amber-500 border-amber-600 text-white shadow-xs" 
-                                  : "bg-slate-50 border-slate-200 text-slate-400 hover:border-slate-300"
-                              }`}
-                              title="Revisão Concluída"
-                            >
-                              R
-                            </label>
-                          </div>
-                          {progressPercent > 0 && (
-                            <div className="w-full bg-slate-100 rounded-full h-1 mt-2 overflow-hidden">
-                              <div 
-                                className={`h-1 rounded-full transition-all duration-300 ${progressPercent === 100 ? 'bg-emerald-500' : 'bg-brand-navy'}`}
-                                style={{ width: `${progressPercent}%` }}
-                              ></div>
+                      return (
+                        <div key={act.id} className="bg-white border border-slate-100 rounded-xl p-4 shadow-2xs space-y-3.5">
+                          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-extrabold border ${
+                                act.subject.includes("Conhecimentos Específicos")
+                                  ? "bg-brand-light-navy text-brand-navy border-brand-navy/10"
+                                  : act.subject.includes("Simulado")
+                                  ? "bg-brand-light-amber text-brand-navy border-brand-amber/15"
+                                  : act.subject.includes("Revisão")
+                                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                                  : "bg-slate-100 text-slate-600 border-slate-200"
+                              }`}>
+                                {act.subject}
+                              </span>
+                              <h5 className={`font-bold text-[12px] leading-snug ${act.status === 'completed' ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                                {act.topicName}
+                              </h5>
+                              {act.notes && (
+                                <p className="text-[10px] text-slate-400 italic leading-relaxed">
+                                  {act.notes}
+                                </p>
+                              )}
                             </div>
-                          )}
-                        </td>
 
-                        {/* DELETE ACTION */}
-                        <td className="py-4 px-4 whitespace-nowrap text-center">
-                          <button
-                            onClick={async () => {
-                              if (confirm("Remover esta linha de estudo do seu cronograma?")) {
-                                await onDeleteActivity(act.id);
-                              }
-                            }}
-                            className="p-1.5 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer"
-                            title="Remover Registro"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 mr-2 whitespace-nowrap">
+                                <Clock className="h-3.5 w-3.5" />
+                                {act.durationMinutes ? `${act.durationMinutes} min` : `${settings.dailyStudyHours}h`}
+                              </span>
+
+                              <button
+                                onClick={async () => {
+                                  if (confirm("Remover esta linha de estudo?")) {
+                                    await onDeleteActivity(act.id);
+                                  }
+                                }}
+                                className="p-1 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded-md transition-colors cursor-pointer"
+                                title="Remover"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Progress TQR check row */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5 border-t border-slate-50">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Metodologia de Estudos (TQR):</span>
+                            
+                            <div className="flex items-center gap-2">
+                              {/* T = Teoria */}
+                              <button 
+                                onClick={() => handleToggleTQR(act, 'T')}
+                                className={`px-3 py-1.5 rounded-lg border text-xs font-extrabold cursor-pointer transition-all flex items-center gap-1.5 ${
+                                  act.theoryDone 
+                                    ? "bg-emerald-500 border-emerald-600 text-white shadow-xs" 
+                                    : "bg-slate-50 border-slate-200 text-slate-400 hover:border-slate-300"
+                                }`}
+                              >
+                                {act.theoryDone && <Check className="h-3 w-3" />}
+                                Teoria (T)
+                              </button>
+
+                              {/* Q = Questões */}
+                              <button 
+                                onClick={() => handleToggleTQR(act, 'Q')}
+                                className={`px-3 py-1.5 rounded-lg border text-xs font-extrabold cursor-pointer transition-all flex items-center gap-1.5 ${
+                                  act.questionsDone 
+                                    ? "bg-brand-navy border-brand-navy/60 text-white shadow-xs" 
+                                    : "bg-slate-50 border-slate-200 text-slate-400 hover:border-slate-300"
+                                }`}
+                              >
+                                {act.questionsDone && <Check className="h-3 w-3" />}
+                                Questões (Q)
+                              </button>
+
+                              {/* R = Revisão */}
+                              <button 
+                                onClick={() => handleToggleTQR(act, 'R')}
+                                className={`px-3 py-1.5 rounded-lg border text-xs font-extrabold cursor-pointer transition-all flex items-center gap-1.5 ${
+                                  act.revisionDone 
+                                    ? "bg-amber-500 border-amber-600 text-white shadow-xs" 
+                                    : "bg-slate-50 border-slate-200 text-slate-400 hover:border-slate-300"
+                                }`}
+                              >
+                                {act.revisionDone && <Check className="h-3 w-3" />}
+                                Revisão (R)
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] border-collapse text-left text-xs font-medium">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[12%] font-sans">Data</th>
+                    <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[13%] font-sans">Dia</th>
+                    <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[22%] font-sans">Área / Disciplina</th>
+                    <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[35%] font-sans">Conteúdo Programático Detalhado</th>
+                    <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[10%] font-sans">Horário</th>
+                    <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[12%] font-sans text-center">Progresso</th>
+                    <th className="py-3.5 px-4 font-bold text-slate-500 uppercase tracking-wider w-[6%] font-sans text-center"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {sortedActivities.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-12 text-slate-400 text-xs font-semibold font-sans">
+                        <div className="flex flex-col items-center gap-2">
+                          <AlertTriangle className="h-6 w-6 text-slate-300" />
+                          <span>Nenhum cronograma de estudos gerado. Utilize o "Gerador Inteligente" acima!</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedActivities.map((act) => {
+                      const dateObj = new Date(act.scheduledDate + "T00:00:00");
+                      const formattedDate = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+                      const dayOfWeek = dateObj.toLocaleDateString('pt-BR', { weekday: 'long' });
+                      const dayOfWeekCapitalized = dayOfWeek.charAt(0).toUpperCase() + dayOfWeek.slice(1);
+
+                      const isToday = act.scheduledDate === todayStr;
+                      const isOverdue = act.status === "planned" && act.scheduledDate < todayStr;
+                      const durationHrs = act.durationMinutes ? Math.floor(act.durationMinutes / 60) : settings.dailyStudyHours;
+
+                      const totalProgressCount = (act.theoryDone ? 1 : 0) + (act.questionsDone ? 1 : 0) + (act.revisionDone ? 1 : 0);
+                      const progressPercent = Math.round((totalProgressCount / 3) * 100);
+
+                      return (
+                        <tr 
+                          key={act.id} 
+                          className={`transition-colors font-sans ${
+                            act.status === "completed" 
+                              ? "bg-slate-50/40 text-slate-400" 
+                              : isToday 
+                              ? "bg-emerald-50/30 text-slate-800 font-semibold" 
+                              : isOverdue 
+                              ? "bg-rose-50/10 text-slate-800" 
+                              : "bg-white hover:bg-slate-50/30 text-slate-700"
+                          }`}
+                        >
+                          {/* DATA */}
+                          <td className="py-4 px-4 whitespace-nowrap">
+                            <span className={`px-2 py-1 rounded-md text-[11px] font-bold ${
+                              isToday 
+                                ? "bg-brand-navy text-white" 
+                                : isOverdue 
+                                ? "bg-rose-100 text-rose-700 border border-rose-200" 
+                                : "bg-slate-100 text-slate-700 border border-slate-200/60"
+                            }`}>
+                              {formattedDate}
+                            </span>
+                          </td>
+
+                          {/* DIA DA SEMANA */}
+                          <td className="py-4 px-4 whitespace-nowrap text-[11px] font-bold text-slate-500">
+                            {dayOfWeekCapitalized}
+                            {isToday && (
+                              <span className="block text-[8px] text-brand-green uppercase font-bold tracking-wider animate-pulse mt-0.5">
+                                Hoje
+                              </span>
+                            )}
+                          </td>
+
+                          {/* ÁREA / DISCIPLINA */}
+                          <td className="py-4 px-4">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-extrabold border ${
+                              act.subject.includes("Conhecimentos Específicos")
+                                ? "bg-brand-light-navy text-brand-navy border-brand-navy/10"
+                                : act.subject.includes("Simulado")
+                                ? "bg-brand-light-amber text-brand-navy border-brand-amber/15"
+                                : act.subject.includes("Revisão")
+                                ? "bg-amber-50 text-amber-700 border-amber-200"
+                                : "bg-slate-100 text-slate-600 border-slate-200"
+                            }`}>
+                              {act.subject}
+                            </span>
+                          </td>
+
+                          {/* CONTEÚDO PROGRAMÁTICO DETALHADO */}
+                          <td className="py-4 px-4">
+                            <p className={`font-bold text-[11.5px] leading-tight ${act.status === 'completed' ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                              {act.topicName}
+                            </p>
+                            {act.notes && (
+                              <p className="text-[10px] text-slate-400 italic font-medium leading-relaxed mt-1">
+                                {act.notes}
+                              </p>
+                            )}
+                          </td>
+
+                          {/* HORÁRIO */}
+                          <td className="py-4 px-4 whitespace-nowrap text-slate-500 font-bold">
+                            <span className="flex items-center gap-1 text-[11px]">
+                              <Clock className="h-3 w-3 text-slate-400" />
+                              {durationHrs}h ({genStudyPeriod.split(' ')[0]})
+                            </span>
+                          </td>
+
+                          {/* PROGRESSO TQR CHECKBOXES */}
+                          <td className="py-4 px-4 whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-2">
+                              {/* T = Teoria */}
+                              <label 
+                                onClick={() => handleToggleTQR(act, 'T')}
+                                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-[10px] font-extrabold cursor-pointer transition-all ${
+                                  act.theoryDone 
+                                    ? "bg-emerald-500 border-emerald-600 text-white shadow-xs" 
+                                    : "bg-slate-50 border-slate-200 text-slate-400 hover:border-slate-300"
+                                }`}
+                                title="Teoria Estudada"
+                              >
+                                T
+                              </label>
+
+                              {/* Q = Questões */}
+                              <label 
+                                onClick={() => handleToggleTQR(act, 'Q')}
+                                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-[10px] font-extrabold cursor-pointer transition-all ${
+                                  act.questionsDone 
+                                    ? "bg-brand-navy border-brand-navy/60 text-white shadow-xs" 
+                                    : "bg-slate-50 border-slate-200 text-slate-400 hover:border-slate-300"
+                                }`}
+                                title="Questões Resolvidas"
+                              >
+                                Q
+                              </label>
+
+                              {/* R = Revisão */}
+                              <label 
+                                onClick={() => handleToggleTQR(act, 'R')}
+                                className={`w-7 h-7 flex items-center justify-center rounded-lg border text-[10px] font-extrabold cursor-pointer transition-all ${
+                                  act.revisionDone 
+                                    ? "bg-amber-500 border-amber-600 text-white shadow-xs" 
+                                    : "bg-slate-50 border-slate-200 text-slate-400 hover:border-slate-300"
+                                }`}
+                                title="Revisão Concluída"
+                              >
+                                R
+                              </label>
+                            </div>
+                            {progressPercent > 0 && (
+                              <div className="w-full bg-slate-100 rounded-full h-1 mt-2 overflow-hidden">
+                                <div 
+                                  className={`h-1 rounded-full transition-all duration-300 ${progressPercent === 100 ? 'bg-emerald-500' : 'bg-brand-navy'}`}
+                                  style={{ width: `${progressPercent}%` }}
+                                ></div>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* DELETE ACTION */}
+                          <td className="py-4 px-4 whitespace-nowrap text-center">
+                            <button
+                              onClick={async () => {
+                                if (confirm("Remover esta linha de estudo do seu cronograma?")) {
+                                  await onDeleteActivity(act.id);
+                                }
+                              }}
+                              className="p-1.5 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded-lg transition-colors cursor-pointer"
+                              title="Remover Registro"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Right Sidebar - Strategy Indicators */}

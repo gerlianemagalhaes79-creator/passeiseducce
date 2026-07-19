@@ -38,13 +38,10 @@ export default function ContentMap({ topics, specialty = "Biologia", onAddTopic,
   const [expandedBlocks, setExpandedBlocks] = useState<Record<string, boolean>>({});
 
   const toggleSubject = (subjectName: string) => {
-    setExpandedSubjects(prev => {
-      const currentVal = prev[subjectName] ?? (selectedSubject === subjectName);
-      return {
-        ...prev,
-        [subjectName]: !currentVal
-      };
-    });
+    setExpandedSubjects(prev => ({
+      ...prev,
+      [subjectName]: !prev[subjectName]
+    }));
   };
 
   const toggleBlock = (blockKey: string) => {
@@ -322,7 +319,7 @@ export default function ContentMap({ topics, specialty = "Biologia", onAddTopic,
             const progressPercent = allSubTopics.length > 0 ? Math.round((completedCount / allSubTopics.length) * 100) : 0;
             const subjectHeaderName = subjectName === "Conhecimentos Específicos" ? `Conhecimentos Específicos — ${specialty}` : subjectName;
 
-            const isSubjectExpanded = expandedSubjects[subjectName] ?? (selectedSubject === subjectName);
+            const isSubjectExpanded = expandedSubjects[subjectName] ?? false;
 
             return (
               <div key={subjectName} className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-6">
