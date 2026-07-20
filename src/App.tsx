@@ -306,7 +306,10 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: cleanEmail })
       });
-      if (!res.ok) throw new Error("Connection failed");
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "Sem resposta do servidor");
+        throw new Error(`Código ${res.status}: ${errorText || "Erro interno"}`);
+      }
       const data = await res.json();
       if (data.authorized && data.user) {
         setUser(data.user);
@@ -317,7 +320,8 @@ export default function App() {
       }
     } catch (err) {
       console.error("Login verification failed:", err);
-      setAuthError("Falha ao conectar com o servidor para autenticar.");
+      const detail = err instanceof Error ? err.message : String(err);
+      setAuthError(`Falha ao conectar com o servidor para autenticar. Detalhe: ${detail}`);
     } finally {
       setCheckingAuth(false);
     }
