@@ -32,11 +32,14 @@ import UserManagement from "./components/UserManagement";
 interface LoginFormProps {
   handleEmailSignIn: (email: string) => Promise<void>;
   authError: string | null;
+  supabaseStatus: { enabled: boolean; tablesMissing: boolean; setupSql: string } | null;
 }
 
-function LoginForm({ handleEmailSignIn, authError }: LoginFormProps) {
+function LoginForm({ handleEmailSignIn, authError, supabaseStatus }: LoginFormProps) {
   const [emailInput, setEmailInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showSqlSetup, setShowSqlSetup] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,6 +128,59 @@ function LoginForm({ handleEmailSignIn, authError }: LoginFormProps) {
         <p className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider pt-2 border-t border-slate-50">
           Acesso Restrito. Em caso de dúvidas, contate o administrador.
         </p>
+
+        {supabaseStatus && supabaseStatus.tablesMissing && (
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-2xl p-5 shadow-sm space-y-3 mt-6 text-left">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-amber-100 rounded-xl text-amber-700 shrink-0">
+                <Database className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-slate-800">Conexão Supabase — Tabelas Ausentes</h3>
+                <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                  Conexão detectada com sucesso! No entanto, as tabelas necessárias ainda não foram criadas no banco de dados. 
+                  Copie o script SQL abaixo para inicializar o banco.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-1 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSqlSetup(!showSqlSetup)}
+                className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold transition-all shadow-sm cursor-pointer"
+              >
+                {showSqlSetup ? "Ocultar SQL" : "Visualizar SQL"}
+              </button>
+              
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(supabaseStatus.setupSql);
+                    setCopiedSql(true);
+                    setTimeout(() => setCopiedSql(false), 3000);
+                  } catch (err) {
+                    console.error("Falha ao copiar:", err);
+                  }
+                }}
+                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-[10px] font-bold transition-all shadow-sm cursor-pointer"
+              >
+                {copiedSql ? "✓ Copiado!" : "Copiar Script SQL"}
+              </button>
+            </div>
+
+            {showSqlSetup && (
+              <div className="bg-slate-900 text-slate-100 rounded-xl p-3 font-mono text-[9px] overflow-auto max-h-48 border border-slate-800">
+                <div className="flex justify-between items-center pb-1 border-b border-slate-800 mb-2">
+                  <span className="text-[8px] uppercase tracking-wider font-bold text-slate-400">Script SQL de Configuração</span>
+                  <span className="text-[8px] text-amber-400">Cole no SQL Editor do Supabase</span>
+                </div>
+                <pre className="whitespace-pre-wrap">{supabaseStatus.setupSql}</pre>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -220,6 +276,18 @@ export default function App() {
       }
     }
     setAuthLoading(false);
+  }, []);
+
+  // Fetch Supabase status unconditionally on mount to support the login screen status check
+  useEffect(() => {
+    fetch("/api/supabase-status")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data) {
+          setSupabaseStatus(data);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch Supabase status on mount:", err));
   }, []);
 
   const handleEmailSignIn = async (email: string) => {
@@ -619,7 +687,7 @@ export default function App() {
 
   // 2. Gate: Unauthenticated User
   if (!user) {
-    return <LoginForm handleEmailSignIn={handleEmailSignIn} authError={authError} />;
+    return <LoginForm handleEmailSignIn={handleEmailSignIn} authError={authError} supabaseStatus={supabaseStatus} />;
   }
 
   if (isLoading) {
